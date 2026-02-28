@@ -1,5 +1,25 @@
 {
-  "active": false,
-  "spec": null,
-  "state": "idle"
+  "active": true,
+  "spec": "010-frontend-implement-settings-page-with-theme-toggle",
+  "state": "building",
+  "subtasks": {
+    "completed": 1,
+    "total": 8,
+    "in_progress": 1,
+    "failed": 0
+  },
+  "phase": {
+    "current": "Settings Page Implementation",
+    "id": null,
+    "total": 6
+  },
+  "workers": {
+    "active": 0,
+    "max": 1
+  },
+  "session": {
+    "number": 2,
+    "started_at": "2026-02-28T11:22:01.231582"
+  },
+  "last_update": "2026-02-28T11:23:34.443085"
 }

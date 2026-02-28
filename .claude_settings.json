@@ -11,6 +11,14 @@
       "Edit(./**)",
       "Glob(./**)",
       "Grep(./**)",
+      "Read(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\010-frontend-implement-settings-page-with-theme-toggle/**)",
+      "Write(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\010-frontend-implement-settings-page-with-theme-toggle/**)",
+      "Edit(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\010-frontend-implement-settings-page-with-theme-toggle/**)",
+      "Glob(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\010-frontend-implement-settings-page-with-theme-toggle/**)",
+      "Grep(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\010-frontend-implement-settings-page-with-theme-toggle/**)",
+      "Read(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\010-frontend-implement-settings-page-with-theme-toggle\\.auto-claude\\specs\\010-frontend-implement-settings-page-with-theme-toggle/**)",
+      "Write(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\010-frontend-implement-settings-page-with-theme-toggle\\.auto-claude\\specs\\010-frontend-implement-settings-page-with-theme-toggle/**)",
+      "Edit(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\010-frontend-implement-settings-page-with-theme-toggle\\.auto-claude\\specs\\010-frontend-implement-settings-page-with-theme-toggle/**)",
       "Read(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude/**)",
       "Write(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude/**)",
       "Edit(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude/**)",
@@ -18,7 +26,14 @@
       "Grep(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude/**)",
       "Bash(*)",
       "WebFetch(*)",
-      "WebSearch(*)"
+      "WebSearch(*)",
+      "mcp__context7__resolve-library-id(*)",
+      "mcp__context7__query-docs(*)",
+      "mcp__graphiti-memory__search_nodes(*)",
+      "mcp__graphiti-memory__search_facts(*)",
+      "mcp__graphiti-memory__add_episode(*)",
+      "mcp__graphiti-memory__get_episodes(*)",
+      "mcp__graphiti-memory__get_entity_edge(*)"
     ]
   }
 }

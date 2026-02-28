@@ -1,9 +1,11 @@
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
+import { useState } from "react";
 
 export default function Settings() {
   const { theme, toggle, mode } = useTheme();
   const navigate = useNavigate();
+  const [language, setLanguage] = useState("fr");
 
   return (
     <div
@@ -35,6 +37,30 @@ export default function Settings() {
         <span style={{ color: theme.textSecondary }}>Theme: </span>
         <span style={{ color: theme.accent }}>{mode === "oled" ? "OLED (Dark)" : "Light"}</span>
       </button>
+
+      {/* Language Selector */}
+      <div
+        className="rounded-xl p-4 mt-4"
+        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+      >
+        <label htmlFor="language-select" style={{ color: theme.textSecondary }}>
+          Language:{" "}
+        </label>
+        <select
+          id="language-select"
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+          className="rounded px-2 py-1 ml-2"
+          style={{
+            background: theme.surface,
+            color: theme.accent,
+            border: `1px solid ${theme.cardBorder}`,
+          }}
+        >
+          <option value="fr">Français</option>
+          <option value="en">English</option>
+        </select>
+      </div>
     </div>
   );
 }
