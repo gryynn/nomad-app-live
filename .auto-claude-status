@@ -1,0 +1,25 @@
+{
+  "active": true,
+  "spec": "002-frontend-implement-design-system-with-oled-light-t",
+  "state": "building",
+  "subtasks": {
+    "completed": 6,
+    "total": 8,
+    "in_progress": 1,
+    "failed": 0
+  },
+  "phase": {
+    "current": "Verify Theme Hook and Build",
+    "id": null,
+    "total": 2
+  },
+  "workers": {
+    "active": 0,
+    "max": 1
+  },
+  "session": {
+    "number": 7,
+    "started_at": "2026-02-28T01:53:09.544784"
+  },
+  "last_update": "2026-02-28T02:01:14.599694"
+}
