@@ -32,9 +32,13 @@ export default function PostCapture() {
   );
   const [notes, setNotes] = useState("");
 
-  // Determine initial transcription state based on mode and liveText
+  // Transcription state machine
+  // States: 'live' (from live mode), 'idle' (no transcription), 'processing' (in progress), 'complete' (finished)
   const initialTranscriptionState = (mode === "live" && liveText) ? "live" : "idle";
   const [transcriptionState, setTranscriptionState] = useState(initialTranscriptionState);
+  const [transcriptionText, setTranscriptionText] = useState(liveText || "");
+  const [transcriptionProgress, setTranscriptionProgress] = useState(0);
+  const [selectedEngine, setSelectedEngine] = useState("whisper");
 
   // Tag toggle handler
   const handleTagToggle = (tagId) => {
@@ -49,6 +53,24 @@ export default function PostCapture() {
         return [...prev, tag];
       }
     });
+  };
+
+  // Transcription state transition handlers
+  const startTranscription = () => {
+    setTranscriptionState("processing");
+    setTranscriptionProgress(0);
+  };
+
+  const completeTranscription = (text) => {
+    setTranscriptionState("complete");
+    setTranscriptionText(text);
+    setTranscriptionProgress(100);
+  };
+
+  const retryTranscription = () => {
+    setTranscriptionState("idle");
+    setTranscriptionText("");
+    setTranscriptionProgress(0);
   };
 
   return (
