@@ -271,3 +271,104 @@ async def delete_session(session_id: str):
         raise HTTPException(status_code=503, detail="Database connection failed")
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/{session_id}/marks", response_model=MarkResponse, status_code=201)
+async def add_mark_to_session(session_id: str, mark: MarkCreate):
+    """Add a timestamp mark to a session"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Check if session exists first
+            check_response = await client.get(
+                f"{BASE_URL}/nomad_sessions",
+                headers=HEADERS,
+                params={"id": f"eq.{session_id}", "select": "id"},
+            )
+            check_response.raise_for_status()
+            sessions = check_response.json()
+
+            if not sessions or len(sessions) == 0:
+                raise HTTPException(status_code=404, detail="Session not found")
+
+            # Prepare mark data for insertion
+            mark_data = {
+                "session_id": session_id,
+                "time": mark.time,
+            }
+
+            # Add optional label if provided
+            if mark.label is not None:
+                mark_data["label"] = mark.label
+
+            # Insert the mark
+            response = await client.post(
+                f"{BASE_URL}/nomad_marks",
+                headers=HEADERS,
+                json=mark_data,
+            )
+            response.raise_for_status()
+
+            created_mark = response.json()
+            if isinstance(created_mark, list) and len(created_mark) > 0:
+                created_mark = created_mark[0]
+
+            return created_mark
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=e.response.status_code, detail="Failed to create mark")
+    except httpx.ConnectError as e:
+        raise HTTPException(status_code=503, detail="Database connection failed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/{session_id}/notes", response_model=NoteResponse, status_code=201)
+async def add_note_to_session(session_id: str, note: NoteCreate):
+    """Add a text note to a session"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Check if session exists first
+            check_response = await client.get(
+                f"{BASE_URL}/nomad_sessions",
+                headers=HEADERS,
+                params={"id": f"eq.{session_id}", "select": "id"},
+            )
+            check_response.raise_for_status()
+            sessions = check_response.json()
+
+            if not sessions or len(sessions) == 0:
+                raise HTTPException(status_code=404, detail="Session not found")
+
+            # Prepare note data for insertion
+            note_data = {
+                "session_id": session_id,
+                "content": note.content,
+                "type": note.type,
+            }
+
+            # Insert the note
+            response = await client.post(
+                f"{BASE_URL}/nomad_notes",
+                headers=HEADERS,
+                json=note_data,
+            )
+            response.raise_for_status()
+
+            created_note = response.json()
+            if isinstance(created_note, list) and len(created_note) > 0:
+                created_note = created_note[0]
+
+            return created_note
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=e.response.status_code, detail="Failed to create note")
+    except httpx.ConnectError as e:
+        raise HTTPException(status_code=503, detail="Database connection failed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
