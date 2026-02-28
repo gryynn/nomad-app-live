@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
-import { DEFAULT_TAGS, STICKY_TAG_IDS } from "../styles/themes.js";
+import { DEFAULT_TAGS, STICKY_TAG_IDS, FONTS } from "../styles/themes.js";
 
 export default function PostCapture() {
   const { theme } = useTheme();
@@ -15,6 +15,13 @@ export default function PostCapture() {
     mode = "offline",
     liveText = ""
   } = location.state || {};
+
+  // Helper function to format time (seconds to mm:ss)
+  const formatDuration = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   // Core state hooks
   const [title, setTitle] = useState("");
@@ -47,12 +54,25 @@ export default function PostCapture() {
       style={{ background: theme.bg, color: theme.text, minHeight: "100vh" }}
       className="flex flex-col px-4 py-6 max-w-lg mx-auto"
     >
-      <p style={{ color: theme.textSoft }}>Post-capture screen — implementation in progress</p>
+      {/* Header */}
+      <header className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <span style={{ color: theme.green, fontSize: "1.25rem", fontWeight: 500 }}>
+            ✓ Capturé
+          </span>
+        </div>
+        <div className="flex items-center gap-3" style={{ fontFamily: FONTS.mono }}>
+          <span style={{ color: theme.textSoft, fontSize: "0.875rem" }}>
+            {mode === "live" ? "LIVE" : "REC"}
+          </span>
+          <span style={{ color: theme.text, fontSize: "0.875rem" }}>
+            {formatDuration(time)}
+          </span>
+        </div>
+      </header>
 
       {/* Debug info - will be replaced with actual UI sections */}
       <div style={{ marginTop: "1rem", fontSize: "12px", color: theme.textGhost }}>
-        <p>Duration: {time}s</p>
-        <p>Mode: {mode}</p>
         <p>Marks: {marks.length}</p>
         <p>Transcription state: {transcriptionState}</p>
         <p>Selected tags: {selectedTags.map(t => t.name).join(", ")}</p>
