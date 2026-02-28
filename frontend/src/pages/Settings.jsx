@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
 import { useState } from "react";
+import { FONTS } from "../styles/themes.js";
 
 export default function Settings() {
   const { theme, toggle, mode } = useTheme();
@@ -29,6 +30,133 @@ export default function Settings() {
           Settings
         </h1>
       </header>
+
+      {/* Statistics Grid */}
+      <section className="grid grid-cols-2 gap-3 mb-4">
+        <div
+          className="rounded-xl"
+          style={{
+            background: theme.cardBg,
+            border: `1px solid ${theme.cardBorder}`,
+            padding: "18px 16px",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: FONTS.mono,
+              fontSize: "20px",
+              opacity: 0.6,
+              color: theme.text,
+              marginBottom: "4px",
+            }}
+          >
+            247
+          </div>
+          <div
+            style={{
+              fontSize: "9.5px",
+              color: theme.textSoft,
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            Sessions
+          </div>
+        </div>
+
+        <div
+          className="rounded-xl"
+          style={{
+            background: theme.cardBg,
+            border: `1px solid ${theme.cardBorder}`,
+            padding: "18px 16px",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: FONTS.mono,
+              fontSize: "20px",
+              opacity: 0.6,
+              color: theme.text,
+              marginBottom: "4px",
+            }}
+          >
+            12.4h
+          </div>
+          <div
+            style={{
+              fontSize: "9.5px",
+              color: theme.textSoft,
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            Duration
+          </div>
+        </div>
+
+        <div
+          className="rounded-xl"
+          style={{
+            background: theme.cardBg,
+            border: `1px solid ${theme.cardBorder}`,
+            padding: "18px 16px",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: FONTS.mono,
+              fontSize: "20px",
+              opacity: 0.6,
+              color: theme.text,
+              marginBottom: "4px",
+            }}
+          >
+            18
+          </div>
+          <div
+            style={{
+              fontSize: "9.5px",
+              color: theme.textSoft,
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            This Week
+          </div>
+        </div>
+
+        <div
+          className="rounded-xl"
+          style={{
+            background: theme.cardBg,
+            border: `1px solid ${theme.cardBorder}`,
+            padding: "18px 16px",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: FONTS.mono,
+              fontSize: "20px",
+              opacity: 0.6,
+              color: theme.text,
+              marginBottom: "4px",
+            }}
+          >
+            2.1GB
+          </div>
+          <div
+            style={{
+              fontSize: "9.5px",
+              color: theme.textSoft,
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            Storage
+          </div>
+        </div>
+      </section>
 
       <button
         onClick={toggle}
