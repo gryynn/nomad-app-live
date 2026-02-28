@@ -18,6 +18,12 @@ export default function PostCapture() {
     liveText = ""
   } = location.state || {};
 
+  // Defensive validation of state values
+  const validTime = typeof time === 'number' && !isNaN(time) && time >= 0 ? time : 0;
+  const validMarks = Array.isArray(marks) ? marks : [];
+  const validMode = mode === "live" || mode === "offline" ? mode : "offline";
+  const validLiveText = typeof liveText === 'string' ? liveText : "";
+
   // Helper function to format time (seconds to mm:ss)
   const formatDuration = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -34,9 +40,9 @@ export default function PostCapture() {
 
   // Transcription state machine
   // States: 'live' (from live mode), 'idle' (no transcription), 'processing' (in progress), 'complete' (finished)
-  const initialTranscriptionState = (mode === "live" && liveText) ? "live" : "idle";
+  const initialTranscriptionState = (validMode === "live" && validLiveText) ? "live" : "idle";
   const [transcriptionState, setTranscriptionState] = useState(initialTranscriptionState);
-  const [transcriptionText, setTranscriptionText] = useState(liveText || "");
+  const [transcriptionText, setTranscriptionText] = useState(validLiveText || "");
   const [transcriptionProgress, setTranscriptionProgress] = useState(0);
   const [selectedEngine, setSelectedEngine] = useState("whisper");
 
@@ -114,10 +120,10 @@ export default function PostCapture() {
         </div>
         <div className="flex items-center gap-3" style={{ fontFamily: FONTS.mono }}>
           <span style={{ color: theme.textSoft, fontSize: "0.875rem" }}>
-            {mode === "live" ? "LIVE" : "REC"}
+            {validMode === "live" ? "LIVE" : "REC"}
           </span>
           <span style={{ color: theme.text, fontSize: "0.875rem" }}>
-            {formatDuration(time)}
+            {formatDuration(validTime)}
           </span>
         </div>
       </header>
@@ -167,7 +173,7 @@ export default function PostCapture() {
       </section>
 
       {/* Marks Review Section - Conditional */}
-      {marks.length > 0 && (
+      {validMarks.length > 0 && (
         <section
           className="rounded-xl p-4 mb-4"
           style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
@@ -179,11 +185,11 @@ export default function PostCapture() {
             Marques
           </label>
           <div className="flex flex-col">
-            {marks.map((mark, index) => (
+            {validMarks.map((mark, index) => (
               <MarkItem
                 key={index}
-                timestamp={mark.timestamp}
-                label={mark.label}
+                timestamp={mark?.timestamp || 0}
+                label={mark?.label || ""}
               />
             ))}
           </div>
@@ -212,7 +218,7 @@ export default function PostCapture() {
               WebkitBoxOrient: "vertical"
             }}
           >
-            {transcriptionText}
+            {transcriptionText || "Transcription vide"}
           </div>
           <button
             className="text-sm"
@@ -356,7 +362,7 @@ export default function PostCapture() {
             </span>
             <span style={{ color: theme.textMuted, fontSize: "0.875rem" }}>·</span>
             <span style={{ color: theme.textSoft, fontSize: "0.875rem" }}>
-              {transcriptionText.split(/\s+/).filter(word => word.length > 0).length} mots
+              {transcriptionText ? transcriptionText.split(/\s+/).filter(word => word.length > 0).length : 0} mots
             </span>
           </div>
 
@@ -369,7 +375,7 @@ export default function PostCapture() {
               fontSize: "0.875rem"
             }}
           >
-            {transcriptionText}
+            {transcriptionText || "Aucun texte transcrit"}
           </div>
 
           {/* Action buttons */}
