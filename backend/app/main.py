@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import engines
+from app.routers import engines, upload
 
 app = FastAPI(
     title="NOMAD API",
@@ -18,6 +18,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(engines.router, prefix="/api")
+app.include_router(upload.router, prefix="/api")
 
 
 @app.get("/api/health")
