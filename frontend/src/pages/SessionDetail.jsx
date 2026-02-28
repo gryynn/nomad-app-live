@@ -208,6 +208,35 @@ export default function SessionDetail() {
     }
   };
 
+  // Format duration from seconds to MM:SS or HH:MM:SS
+  const formatDuration = (seconds) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) {
+      return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    }
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  // Format date to relative or absolute
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return "Aujourd'hui";
+    if (diffDays === 1) return "Hier";
+    if (diffDays < 7) return `Il y a ${diffDays}j`;
+
+    // Format as DD/MM/YYYY
+    const day = date.getDate().toString().padStart(2, "0");
+    const month = (date.getMonth() + 1).toString().padStart(2, "0");
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
   return (
     <div
       style={{ background: theme.bg, color: theme.text, minHeight: "100vh" }}
@@ -255,8 +284,30 @@ export default function SessionDetail() {
         )}
       </header>
 
+      {/* Meta information row */}
+      <div
+        className="flex items-center gap-4 flex-wrap text-xs"
+        style={{
+          fontFamily: FONTS.mono,
+          fontSize: "10px",
+          color: theme.textGhost,
+        }}
+      >
+        <span>{formatDate(mockSession.date)}</span>
+        <span>•</span>
+        <span>{formatDuration(mockSession.duration)}</span>
+        <span>•</span>
+        <span>{mockSession.deviceName}</span>
+        <span>•</span>
+        <span>{mockSession.engineName}</span>
+        <span>•</span>
+        <span className="capitalize">{mockSession.status}</span>
+      </div>
+
       {/* Placeholder content */}
-      <p style={{ color: theme.textSoft }}>Rest of content coming soon...</p>
+      <p className="mt-6" style={{ color: theme.textSoft }}>
+        Rest of content coming soon...
+      </p>
     </div>
   );
 }
