@@ -176,6 +176,10 @@ export default function SessionDetail() {
     return DEFAULT_TAGS.filter(tag => ["1", "9"].includes(tag.id));
   });
 
+  // State for audio player (UI only - no functional playback yet)
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+
   // Auto-focus input when entering edit mode
   useEffect(() => {
     if (isEditingTitle && titleInputRef.current) {
@@ -230,6 +234,11 @@ export default function SessionDetail() {
         return [...prev, tag];
       }
     });
+  };
+
+  // Audio player handlers (UI only)
+  const handlePlayPause = () => {
+    setIsPlaying(!isPlaying);
   };
 
   // Format duration from seconds to MM:SS or HH:MM:SS
@@ -348,6 +357,71 @@ export default function SessionDetail() {
               onToggle={handleTagToggle}
             />
           ))}
+        </div>
+      </section>
+
+      {/* Audio Player Section */}
+      <section
+        className="rounded-xl p-4 mt-4"
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
+      >
+        <div className="flex flex-col gap-4">
+          {/* Play/Pause Button and Time Display */}
+          <div className="flex items-center gap-4">
+            {/* Play/Pause Button */}
+            <button
+              onClick={handlePlayPause}
+              className="flex items-center justify-center"
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+                background: theme.accent,
+                color: theme.bg,
+                border: "none",
+                cursor: "pointer",
+                fontSize: "20px",
+              }}
+            >
+              {isPlaying ? "⏸" : "▶"}
+            </button>
+
+            {/* Time Display */}
+            <div
+              className="flex items-center gap-2"
+              style={{
+                fontFamily: FONTS.mono,
+                fontSize: "14px",
+                color: theme.text,
+              }}
+            >
+              <span>{formatDuration(currentTime)}</span>
+              <span style={{ color: theme.textGhost }}>/</span>
+              <span style={{ color: theme.textSoft }}>{formatDuration(mockSession.duration)}</span>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div
+            className="w-full"
+            style={{
+              height: "4px",
+              borderRadius: "2px",
+              background: theme.cardBorder,
+              position: "relative",
+              cursor: "pointer",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                width: `${(currentTime / mockSession.duration) * 100}%`,
+                borderRadius: "2px",
+                background: theme.accent,
+                transition: "width 0.1s linear",
+              }}
+            />
+          </div>
         </div>
       </section>
 
