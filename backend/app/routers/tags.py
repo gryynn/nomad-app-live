@@ -97,8 +97,7 @@ async def create_tag(tag: TagCreate):
         tag_data = {
             "name": tag.name,
             "emoji": tag.emoji,
-            "color": tag.color,
-            "transcribe": tag.transcribe,
+            "hue": tag.hue,
         }
 
         # Add optional parent_id if provided
@@ -191,10 +190,8 @@ async def update_tag(tag_id: str, tag_update: TagUpdate):
             update_data["name"] = tag_update.name
         if tag_update.emoji is not None:
             update_data["emoji"] = tag_update.emoji
-        if tag_update.color is not None:
-            update_data["color"] = tag_update.color
-        if tag_update.transcribe is not None:
-            update_data["transcribe"] = tag_update.transcribe
+        if tag_update.hue is not None:
+            update_data["hue"] = tag_update.hue
         if tag_update.parent_id is not None:
             update_data["parent_id"] = tag_update.parent_id
 
@@ -360,23 +357,7 @@ async def associate_tags_with_session(session_id: str, tag_assoc: TagAssociation
             except Exception:
                 session["notes"] = []
 
-            # Fetch related marks (handle gracefully if table doesn't exist)
-            try:
-                marks_response = await client.get(
-                    f"{BASE_URL}/marks",
-                    headers=HEADERS,
-                    params={
-                        "session_id": f"eq.{session_id}",
-                        "select": "*",
-                        "order": "time.asc",
-                    },
-                )
-                if marks_response.status_code == 200:
-                    session["marks"] = marks_response.json()
-                else:
-                    session["marks"] = []
-            except Exception:
-                session["marks"] = []
+            # marks is already a JSONB column on sessions — no separate fetch needed
 
             return session
     except HTTPException:

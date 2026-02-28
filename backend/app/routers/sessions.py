@@ -7,7 +7,6 @@ from app.models.schemas import (
     SessionCreate,
     SessionUpdate,
     MarkCreate,
-    MarkResponse,
     NoteCreate,
     NoteResponse,
 )
@@ -31,22 +30,29 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 async def create_session(session: SessionCreate):
     """Create a new recording session"""
     try:
-        # Prepare session data for insertion
         session_data = {
-            "duration": session.duration,
             "input_mode": session.input_mode,
-            "status": "processing",  # Default status for new sessions
+            "status": "pending",
         }
 
-        # Add optional fields if provided
         if session.title is not None:
             session_data["title"] = session.title
-        if session.content is not None:
-            session_data["content"] = session.content
-        if session.transcribe is not None:
-            session_data["transcribe"] = session.transcribe
-        if session.engine is not None:
-            session_data["engine"] = session.engine
+        if session.duration_seconds is not None:
+            session_data["duration_seconds"] = session.duration_seconds
+        if session.audio_url is not None:
+            session_data["audio_url"] = session.audio_url
+        if session.original_filename is not None:
+            session_data["original_filename"] = session.original_filename
+        if session.file_size_bytes is not None:
+            session_data["file_size_bytes"] = session.file_size_bytes
+        if session.mix_mode != "mono":
+            session_data["mix_mode"] = session.mix_mode
+        if session.language != "fr":
+            session_data["language"] = session.language
+        if session.engine_used is not None:
+            session_data["engine_used"] = session.engine_used
+        if session.offline_created:
+            session_data["offline_created"] = True
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -77,7 +83,6 @@ async def list_sessions(
 ):
     """List sessions with optional filters"""
     try:
-        # Build query parameters
         params = {
             "select": "*",
             "order": "created_at.desc",
@@ -85,7 +90,6 @@ async def list_sessions(
             "offset": offset,
         }
 
-        # Add filters if provided
         if status:
             params["status"] = f"eq.{status}"
         if search:
@@ -107,10 +111,9 @@ async def list_sessions(
 
 @router.get("/{session_id}", response_model=SessionResponse)
 async def get_session(session_id: str):
-    """Get session detail with embedded tags, notes, and marks"""
+    """Get session detail with embedded tags and notes"""
     try:
         async with httpx.AsyncClient() as client:
-            # Fetch session with embedded related data
             response = await client.get(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
@@ -127,7 +130,7 @@ async def get_session(session_id: str):
 
             session = sessions[0]
 
-            # Fetch related tags via junction table (handle gracefully if table doesn't exist)
+            # Fetch related tags via junction table
             try:
                 tags_response = await client.get(
                     f"{BASE_URL}/session_tags",
@@ -145,7 +148,7 @@ async def get_session(session_id: str):
             except Exception:
                 session["tags"] = []
 
-            # Fetch related notes (handle gracefully if table doesn't exist)
+            # Fetch related notes
             try:
                 notes_response = await client.get(
                     f"{BASE_URL}/notes",
@@ -163,23 +166,7 @@ async def get_session(session_id: str):
             except Exception:
                 session["notes"] = []
 
-            # Fetch related marks (handle gracefully if table doesn't exist)
-            try:
-                marks_response = await client.get(
-                    f"{BASE_URL}/marks",
-                    headers=HEADERS,
-                    params={
-                        "session_id": f"eq.{session_id}",
-                        "select": "*",
-                        "order": "time.asc",
-                    },
-                )
-                if marks_response.status_code == 200:
-                    session["marks"] = marks_response.json()
-                else:
-                    session["marks"] = []
-            except Exception:
-                session["marks"] = []
+            # marks is already a JSONB column on sessions — no separate fetch needed
 
             return session
     except HTTPException:
@@ -188,9 +175,9 @@ async def get_session(session_id: str):
         if e.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Session not found")
         raise HTTPException(status_code=e.response.status_code, detail="Failed to fetch session")
-    except httpx.ConnectError as e:
+    except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="Database connection failed")
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -198,18 +185,12 @@ async def get_session(session_id: str):
 async def update_session(session_id: str, session_update: SessionUpdate):
     """Update session fields"""
     try:
-        # Build update data from provided fields
-        update_data = {}
-        if session_update.title is not None:
-            update_data["title"] = session_update.title
-        if session_update.status is not None:
-            update_data["status"] = session_update.status
+        update_data = session_update.model_dump(exclude_none=True)
 
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
 
         async with httpx.AsyncClient() as client:
-            # Update the session
             response = await client.patch(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
@@ -229,18 +210,18 @@ async def update_session(session_id: str, session_update: SessionUpdate):
         if e.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Session not found")
         raise HTTPException(status_code=e.response.status_code, detail="Failed to update session")
-    except httpx.ConnectError as e:
+    except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="Database connection failed")
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(session_id: str):
-    """Delete a session"""
+    """Soft-delete a session (set deleted_at)"""
     try:
         async with httpx.AsyncClient() as client:
-            # Check if session exists first
+            # Check if session exists
             check_response = await client.get(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
@@ -252,11 +233,12 @@ async def delete_session(session_id: str):
             if not sessions or len(sessions) == 0:
                 raise HTTPException(status_code=404, detail="Session not found")
 
-            # Delete the session
-            response = await client.delete(
+            # Soft delete: set deleted_at timestamp
+            response = await client.patch(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={"id": f"eq.{session_id}"},
+                json={"deleted_at": "now()"},
             )
             response.raise_for_status()
 
@@ -267,61 +249,57 @@ async def delete_session(session_id: str):
         if e.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Session not found")
         raise HTTPException(status_code=e.response.status_code, detail="Failed to delete session")
-    except httpx.ConnectError as e:
+    except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="Database connection failed")
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("/{session_id}/marks", response_model=MarkResponse, status_code=201)
+@router.post("/{session_id}/marks", status_code=201)
 async def add_mark_to_session(session_id: str, mark: MarkCreate):
-    """Add a timestamp mark to a session"""
+    """Add a timestamp mark to a session (appends to JSONB marks array)"""
     try:
         async with httpx.AsyncClient() as client:
-            # Check if session exists first
-            check_response = await client.get(
+            # Fetch current session to get existing marks
+            response = await client.get(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
-                params={"id": f"eq.{session_id}", "select": "id"},
+                params={
+                    "id": f"eq.{session_id}",
+                    "select": "id,marks",
+                },
             )
-            check_response.raise_for_status()
-            sessions = check_response.json()
+            response.raise_for_status()
+            sessions = response.json()
 
             if not sessions or len(sessions) == 0:
                 raise HTTPException(status_code=404, detail="Session not found")
 
-            # Prepare mark data for insertion
-            mark_data = {
-                "session_id": session_id,
-                "time": mark.time,
-            }
+            current_marks = sessions[0].get("marks") or []
 
-            # Add optional label if provided
+            # Append new mark to JSONB array
+            new_mark = {"time": mark.time}
             if mark.label is not None:
-                mark_data["label"] = mark.label
+                new_mark["label"] = mark.label
+            current_marks.append(new_mark)
 
-            # Insert the mark
-            response = await client.post(
-                f"{BASE_URL}/marks",
+            # Update session with new marks array
+            update_response = await client.patch(
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
-                json=mark_data,
+                params={"id": f"eq.{session_id}"},
+                json={"marks": current_marks},
             )
-            response.raise_for_status()
+            update_response.raise_for_status()
 
-            created_mark = response.json()
-            if isinstance(created_mark, list) and len(created_mark) > 0:
-                created_mark = created_mark[0]
-
-            return created_mark
+            return new_mark
     except HTTPException:
         raise
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise HTTPException(status_code=404, detail="Session not found")
-        raise HTTPException(status_code=e.response.status_code, detail="Failed to create mark")
-    except httpx.ConnectError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="Failed to add mark")
+    except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="Database connection failed")
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -330,7 +308,7 @@ async def add_note_to_session(session_id: str, note: NoteCreate):
     """Add a text note to a session"""
     try:
         async with httpx.AsyncClient() as client:
-            # Check if session exists first
+            # Check if session exists
             check_response = await client.get(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
@@ -342,14 +320,11 @@ async def add_note_to_session(session_id: str, note: NoteCreate):
             if not sessions or len(sessions) == 0:
                 raise HTTPException(status_code=404, detail="Session not found")
 
-            # Prepare note data for insertion
             note_data = {
                 "session_id": session_id,
                 "content": note.content,
-                "type": note.type,
             }
 
-            # Insert the note
             response = await client.post(
                 f"{BASE_URL}/notes",
                 headers=HEADERS,
@@ -365,10 +340,8 @@ async def add_note_to_session(session_id: str, note: NoteCreate):
     except HTTPException:
         raise
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise HTTPException(status_code=404, detail="Session not found")
         raise HTTPException(status_code=e.response.status_code, detail="Failed to create note")
-    except httpx.ConnectError as e:
+    except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="Database connection failed")
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="Internal server error")
