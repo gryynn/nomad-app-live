@@ -1,4 +1,7 @@
+import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
+import { FONTS } from "../styles/themes.js";
 
 // Mock session data for UI development
 const mockSession = {
@@ -156,13 +159,104 @@ const mockSession = {
 
 export default function SessionDetail() {
   const { theme } = useTheme();
+  const navigate = useNavigate();
+
+  // State for inline title editing
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [title, setTitle] = useState(mockSession.title);
+  const [editedTitle, setEditedTitle] = useState(mockSession.title);
+  const titleInputRef = useRef(null);
+
+  // Auto-focus input when entering edit mode
+  useEffect(() => {
+    if (isEditingTitle && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [isEditingTitle]);
+
+  // Handle title edit start
+  const handleTitleClick = () => {
+    setEditedTitle(title);
+    setIsEditingTitle(true);
+  };
+
+  // Handle title save
+  const handleTitleSave = () => {
+    if (editedTitle.trim()) {
+      setTitle(editedTitle.trim());
+    } else {
+      setEditedTitle(title); // Revert if empty
+    }
+    setIsEditingTitle(false);
+  };
+
+  // Handle title cancel
+  const handleTitleCancel = () => {
+    setEditedTitle(title);
+    setIsEditingTitle(false);
+  };
+
+  // Handle keyboard events
+  const handleTitleKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleTitleSave();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleTitleCancel();
+    }
+  };
 
   return (
     <div
       style={{ background: theme.bg, color: theme.text, minHeight: "100vh" }}
       className="flex flex-col px-4 py-6 max-w-lg mx-auto"
     >
-      <p style={{ color: theme.textMuted }}>Session detail — coming soon</p>
+      {/* Header with back button and editable title */}
+      <header className="flex items-center gap-3 mb-6">
+        <button
+          onClick={() => navigate("/")}
+          className="text-xl"
+          style={{ color: theme.text }}
+        >
+          ←
+        </button>
+
+        {isEditingTitle ? (
+          <input
+            ref={titleInputRef}
+            type="text"
+            value={editedTitle}
+            onChange={(e) => setEditedTitle(e.target.value)}
+            onBlur={handleTitleSave}
+            onKeyDown={handleTitleKeyDown}
+            className="flex-1 bg-transparent border-none outline-none"
+            style={{
+              fontFamily: FONTS.body,
+              fontSize: "16px",
+              fontWeight: 400,
+              color: theme.text,
+            }}
+          />
+        ) : (
+          <h1
+            onClick={handleTitleClick}
+            className="flex-1 cursor-pointer"
+            style={{
+              fontFamily: FONTS.body,
+              fontSize: "16px",
+              fontWeight: 400,
+              color: theme.text,
+            }}
+          >
+            {title}
+          </h1>
+        )}
+      </header>
+
+      {/* Placeholder content */}
+      <p style={{ color: theme.textSoft }}>Rest of content coming soon...</p>
     </div>
   );
 }
