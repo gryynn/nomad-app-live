@@ -161,18 +161,18 @@ export default function Settings() {
       <button
         onClick={toggle}
         className="rounded-xl p-4 text-left"
-        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
       >
-        <span style={{ color: theme.textSecondary }}>Theme: </span>
+        <span style={{ color: theme.textSoft }}>Theme: </span>
         <span style={{ color: theme.accent }}>{mode === "oled" ? "OLED (Dark)" : "Light"}</span>
       </button>
 
       {/* Language Selector */}
       <div
         className="rounded-xl p-4 mt-4"
-        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
       >
-        <label htmlFor="language-select" style={{ color: theme.textSecondary }}>
+        <label htmlFor="language-select" style={{ color: theme.textSoft }}>
           Language:{" "}
         </label>
         <select
@@ -194,9 +194,9 @@ export default function Settings() {
       {/* Transcription Engine Selector */}
       <div
         className="rounded-xl p-4 mt-4"
-        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
       >
-        <div style={{ color: theme.textSecondary, marginBottom: "12px" }}>
+        <div style={{ color: theme.textSoft, marginBottom: "12px" }}>
           Default Transcription Engine:
         </div>
         <div className="flex flex-col gap-2">
@@ -335,7 +335,7 @@ export default function Settings() {
       {/* About Section */}
       <div
         className="rounded-xl p-4 mt-4"
-        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
       >
         <div
           style={{
@@ -349,7 +349,7 @@ export default function Settings() {
           About
         </div>
         <div style={{ marginBottom: "8px" }}>
-          <span style={{ color: theme.textSecondary }}>Version: </span>
+          <span style={{ color: theme.textSoft }}>Version: </span>
           <span style={{ color: theme.accent, fontFamily: FONTS.mono }}>v0.1.0</span>
         </div>
         <div>
