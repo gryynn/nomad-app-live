@@ -6,6 +6,7 @@ export default function Settings() {
   const { theme, toggle, mode } = useTheme();
   const navigate = useNavigate();
   const [language, setLanguage] = useState("fr");
+  const [engine, setEngine] = useState("groq");
 
   return (
     <div
@@ -60,6 +61,51 @@ export default function Settings() {
           <option value="fr">Français</option>
           <option value="en">English</option>
         </select>
+      </div>
+
+      {/* Transcription Engine Selector */}
+      <div
+        className="rounded-xl p-4 mt-4"
+        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+      >
+        <div style={{ color: theme.textSecondary, marginBottom: "12px" }}>
+          Default Transcription Engine:
+        </div>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={() => setEngine("groq")}
+            className="rounded-lg p-3 text-left transition-colors"
+            style={{
+              background: engine === "groq" ? theme.surface : "transparent",
+              border: `1px solid ${engine === "groq" ? theme.accent : theme.cardBorder}`,
+              color: engine === "groq" ? theme.accent : theme.text,
+            }}
+          >
+            Groq Whisper
+          </button>
+          <button
+            onClick={() => setEngine("deepgram")}
+            className="rounded-lg p-3 text-left transition-colors"
+            style={{
+              background: engine === "deepgram" ? theme.surface : "transparent",
+              border: `1px solid ${engine === "deepgram" ? theme.accent : theme.cardBorder}`,
+              color: engine === "deepgram" ? theme.accent : theme.text,
+            }}
+          >
+            Deepgram Nova-3
+          </button>
+          <button
+            onClick={() => setEngine("whisperx")}
+            className="rounded-lg p-3 text-left transition-colors"
+            style={{
+              background: engine === "whisperx" ? theme.surface : "transparent",
+              border: `1px solid ${engine === "whisperx" ? theme.accent : theme.cardBorder}`,
+              color: engine === "whisperx" ? theme.accent : theme.text,
+            }}
+          >
+            WhisperX (Local GPU)
+          </button>
+        </div>
       </div>
     </div>
   );
