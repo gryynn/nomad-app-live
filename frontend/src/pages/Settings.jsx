@@ -331,6 +331,39 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      {/* About Section */}
+      <div
+        className="rounded-xl p-4 mt-4"
+        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+      >
+        <div
+          style={{
+            fontSize: "9.5px",
+            color: theme.textSoft,
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+            marginBottom: "12px",
+          }}
+        >
+          About
+        </div>
+        <div style={{ marginBottom: "8px" }}>
+          <span style={{ color: theme.textSecondary }}>Version: </span>
+          <span style={{ color: theme.accent, fontFamily: FONTS.mono }}>v0.1.0</span>
+        </div>
+        <div>
+          <a
+            href="https://github.com/yourusername/nomad-pwa"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: theme.accent, textDecoration: "none" }}
+            className="hover:underline"
+          >
+            View on GitHub →
+          </a>
+        </div>
+      </div>
     </div>
   );
 }
