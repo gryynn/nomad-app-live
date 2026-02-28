@@ -71,6 +71,27 @@ export default function PostCapture() {
         </div>
       </header>
 
+      {/* Title Input Section */}
+      <section
+        className="rounded-xl p-4 mb-4"
+        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+      >
+        <label
+          className="block text-xs font-medium mb-2 uppercase tracking-wide"
+          style={{ color: theme.textMuted }}
+        >
+          Titre
+        </label>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Sans titre"
+          className="w-full bg-transparent border-none outline-none text-base"
+          style={{ color: theme.text }}
+        />
+      </section>
+
       {/* Debug info - will be replaced with actual UI sections */}
       <div style={{ marginTop: "1rem", fontSize: "12px", color: theme.textGhost }}>
         <p>Marks: {marks.length}</p>
