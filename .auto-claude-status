@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "010-frontend-implement-settings-page-with-theme-toggle",
+  "spec": "013-session-detail-page-ui",
   "state": "building",
   "subtasks": {
-    "completed": 7,
-    "total": 8,
+    "completed": 3,
+    "total": 10,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Build and Theme Verification",
+    "current": "Implement SessionDetail Page",
     "id": null,
-    "total": 2
+    "total": 10
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 8,
-    "started_at": "2026-02-28T11:22:01.231582"
+    "number": 4,
+    "started_at": "2026-02-28T18:10:48.635108"
   },
-  "last_update": "2026-02-28T11:33:06.085981"
+  "last_update": "2026-02-28T18:17:20.388321"
 }

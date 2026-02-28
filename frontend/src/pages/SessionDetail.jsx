@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
-import { FONTS } from "../styles/themes.js";
+import { FONTS, DEFAULT_TAGS } from "../styles/themes.js";
+import TagChip from "../components/TagChip.jsx";
 
 // Mock session data for UI development
 const mockSession = {
@@ -167,6 +168,14 @@ export default function SessionDetail() {
   const [editedTitle, setEditedTitle] = useState(mockSession.title);
   const titleInputRef = useRef(null);
 
+  // State for tags
+  // Initialize with some DEFAULT_TAGS that match the session's theme
+  const [selectedTags, setSelectedTags] = useState(() => {
+    // For UI demo, select tags with IDs "1" (Insight) and "9" (Learning)
+    // In production, this would come from the database
+    return DEFAULT_TAGS.filter(tag => ["1", "9"].includes(tag.id));
+  });
+
   // Auto-focus input when entering edit mode
   useEffect(() => {
     if (isEditingTitle && titleInputRef.current) {
@@ -206,6 +215,21 @@ export default function SessionDetail() {
       e.preventDefault();
       handleTitleCancel();
     }
+  };
+
+  // Tag toggle handler
+  const handleTagToggle = (tagId) => {
+    const tag = DEFAULT_TAGS.find(t => t.id === tagId);
+    if (!tag) return;
+
+    setSelectedTags(prev => {
+      const isSelected = prev.some(t => t.id === tagId);
+      if (isSelected) {
+        return prev.filter(t => t.id !== tagId);
+      } else {
+        return [...prev, tag];
+      }
+    });
   };
 
   // Format duration from seconds to MM:SS or HH:MM:SS
@@ -303,6 +327,29 @@ export default function SessionDetail() {
         <span>•</span>
         <span className="capitalize">{mockSession.status}</span>
       </div>
+
+      {/* Tags Section */}
+      <section
+        className="rounded-xl p-4 mt-6"
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
+      >
+        <label
+          className="block text-xs font-medium mb-3 uppercase tracking-wide"
+          style={{ color: theme.textSoft }}
+        >
+          Tags
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {DEFAULT_TAGS.map((tag) => (
+            <TagChip
+              key={tag.id}
+              tag={tag}
+              selected={selectedTags.some(t => t.id === tag.id)}
+              onToggle={handleTagToggle}
+            />
+          ))}
+        </div>
+      </section>
 
       {/* Placeholder content */}
       <p className="mt-6" style={{ color: theme.textSoft }}>
