@@ -9,3 +9,6 @@ __pycache__/
 .vscode/
 *.sqlite3
 .claude/
+
+# Auto Claude data directory
+.auto-claude/

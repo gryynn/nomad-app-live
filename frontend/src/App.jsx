@@ -13,6 +13,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/record" element={<Recording />} />
+        <Route path="/post-capture" element={<PostCapture />} />
         <Route path="/post-capture/:id" element={<PostCapture />} />
         <Route path="/sessions" element={<Sessions />} />
         <Route path="/sessions/:id" element={<SessionDetail />} />

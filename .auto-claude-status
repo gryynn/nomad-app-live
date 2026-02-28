@@ -1,0 +1,25 @@
+{
+  "active": true,
+  "spec": "005-frontend-implement-recording-screen-with-rec-live-",
+  "state": "building",
+  "subtasks": {
+    "completed": 6,
+    "total": 9,
+    "in_progress": 1,
+    "failed": 0
+  },
+  "phase": {
+    "current": "Component Implementation",
+    "id": null,
+    "total": 9
+  },
+  "workers": {
+    "active": 0,
+    "max": 1
+  },
+  "session": {
+    "number": 5,
+    "started_at": "2026-02-28T17:03:30.053307"
+  },
+  "last_update": "2026-02-28T17:15:56.217571"
+}
