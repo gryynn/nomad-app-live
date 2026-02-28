@@ -1,7 +1,7 @@
+import { useState, useCallback } from "react";
 import { openDB } from "idb";
 
 const DB_NAME = "nomad-offline";
-const STORE_NAME = "pending-sessions";
 
 async function getDb() {
   return openDB(DB_NAME, 2, {
@@ -19,30 +19,77 @@ async function getDb() {
   });
 }
 
-export async function savePending(session) {
-  const db = await getDb();
-  await db.put(STORE_NAME, session);
-}
+export function useOfflineSync() {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [syncProgress, setSyncProgress] = useState({ total: 0, synced: 0 });
 
-export async function getPending() {
-  const db = await getDb();
-  return db.getAll(STORE_NAME);
-}
+  const saveSessionOffline = useCallback(async (session) => {
+    const db = await getDb();
+    await db.put("pending-sessions", session);
+  }, []);
 
-export async function removePending(id) {
-  const db = await getDb();
-  await db.delete(STORE_NAME, id);
-}
+  const saveRecordingOffline = useCallback(async (recording) => {
+    const db = await getDb();
+    await db.put("pending-recordings", recording);
+  }, []);
 
-export async function syncPending(uploadFn) {
-  const pending = await getPending();
-  for (const session of pending) {
-    try {
-      await uploadFn(session);
-      await removePending(session.id);
-    } catch {
-      // Will retry on next sync
-      break;
+  const getPendingSessions = useCallback(async () => {
+    const db = await getDb();
+    return db.getAll("pending-sessions");
+  }, []);
+
+  const getPendingRecordings = useCallback(async () => {
+    const db = await getDb();
+    return db.getAll("pending-recordings");
+  }, []);
+
+  const removePendingSession = useCallback(async (id) => {
+    const db = await getDb();
+    await db.delete("pending-sessions", id);
+  }, []);
+
+  const removePendingRecording = useCallback(async (id) => {
+    const db = await getDb();
+    await db.delete("pending-recordings", id);
+  }, []);
+
+  const syncPending = useCallback(async (uploadFn) => {
+    setSyncProgress({ total: 0, synced: 0 });
+
+    const sessions = await getPendingSessions();
+    const recordings = await getPendingRecordings();
+    const allPending = [...sessions, ...recordings];
+
+    setSyncProgress({ total: allPending.length, synced: 0 });
+
+    let synced = 0;
+    for (const item of allPending) {
+      try {
+        await uploadFn(item);
+
+        // Determine which store to remove from
+        if (sessions.find((s) => s.id === item.id)) {
+          await removePendingSession(item.id);
+        } else {
+          await removePendingRecording(item.id);
+        }
+
+        synced++;
+        setSyncProgress({ total: allPending.length, synced });
+      } catch {
+        // Will retry on next sync
+        break;
+      }
     }
-  }
+  }, [getPendingSessions, getPendingRecordings, removePendingSession, removePendingRecording]);
+
+  return {
+    isOnline,
+    pendingCount,
+    syncProgress,
+    saveSessionOffline,
+    saveRecordingOffline,
+    syncPending,
+  };
 }
