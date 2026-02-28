@@ -349,8 +349,8 @@ export default function Recording() {
         }
 
         @keyframes cursorBlink {
-          0%, 49% { opacity: 1; }
-          50%, 100% { opacity: 0; }
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 0; }
         }
       `}</style>
     </div>
