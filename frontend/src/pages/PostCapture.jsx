@@ -163,6 +163,39 @@ export default function PostCapture() {
         </section>
       )}
 
+      {/* Transcription Section - State A: Live */}
+      {transcriptionState === "live" && (
+        <section
+          className="rounded-xl p-4 mb-4"
+          style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <span style={{ color: theme.green, fontSize: "0.875rem", fontWeight: 500 }}>
+              ✓ Transcrit en direct
+            </span>
+          </div>
+          <div
+            className="mb-3 overflow-hidden"
+            style={{
+              color: theme.text,
+              maxHeight: "4.5rem",
+              lineHeight: "1.5rem",
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical"
+            }}
+          >
+            {transcriptionText}
+          </div>
+          <button
+            className="text-sm"
+            style={{ color: theme.accent, background: "transparent", border: "none", padding: 0 }}
+          >
+            Voir tout →
+          </button>
+        </section>
+      )}
+
       {/* Notes Section */}
       <section
         className="rounded-xl p-4 mb-4"
