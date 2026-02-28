@@ -110,7 +110,7 @@ export default function Recording() {
   };
 
   // Timer color based on mode
-  const timerColor = isRecMode ? "#D8CAA0" : theme.danger;
+  const timerColor = isRecMode ? theme.accent : theme.red;
 
   return (
     <div
