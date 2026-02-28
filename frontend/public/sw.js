@@ -60,3 +60,27 @@ self.addEventListener("fetch", (event) => {
     }).catch(() => caches.match("/index.html"))
   );
 });
+
+self.addEventListener("sync", (event) => {
+  if (event.tag === "sync-sessions") {
+    event.waitUntil(syncPendingSessions());
+  }
+});
+
+async function syncPendingSessions() {
+  try {
+    // This will be called when connectivity is restored
+    // The actual sync logic will be implemented by the client
+    // Send a message to all clients to trigger the sync
+    const clients = await self.clients.matchAll();
+    clients.forEach((client) => {
+      client.postMessage({
+        type: "BACKGROUND_SYNC",
+        tag: "sync-sessions",
+      });
+    });
+  } catch (error) {
+    // Sync will be retried automatically
+    throw error;
+  }
+}
