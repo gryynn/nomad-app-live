@@ -7,6 +7,7 @@ from app.models.schemas import (
     TagCreate,
     TagUpdate,
     TagAssociation,
+    SessionResponse,
 )
 
 # Supabase REST API configuration
@@ -259,6 +260,131 @@ async def delete_tag(tag_id: str):
         if e.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Tag not found")
         raise HTTPException(status_code=e.response.status_code, detail="Failed to delete tag")
+    except httpx.ConnectError as e:
+        raise HTTPException(status_code=503, detail="Database connection failed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Separate router for session-tags association (different URL prefix)
+sessions_tags_router = APIRouter(prefix="/api/sessions", tags=["tags"])
+
+
+@sessions_tags_router.post("/{session_id}/tags", response_model=SessionResponse)
+async def associate_tags_with_session(session_id: str, tag_assoc: TagAssociation):
+    """Associate multiple tags with a session"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # First, verify the session exists
+            session_response = await client.get(
+                f"{BASE_URL}/nomad_sessions",
+                headers=HEADERS,
+                params={
+                    "id": f"eq.{session_id}",
+                    "select": "id",
+                },
+            )
+            session_response.raise_for_status()
+            sessions = session_response.json()
+
+            if not sessions or len(sessions) == 0:
+                raise HTTPException(status_code=404, detail="Session not found")
+
+            # Insert tag associations into junction table
+            # Create association records for each tag
+            for tag_id in tag_assoc.tag_ids:
+                association_data = {
+                    "session_id": session_id,
+                    "tag_id": tag_id,
+                }
+
+                try:
+                    assoc_response = await client.post(
+                        f"{BASE_URL}/nomad_session_tags",
+                        headers=HEADERS,
+                        json=association_data,
+                    )
+                    # Ignore conflicts (tag already associated)
+                    if assoc_response.status_code not in [200, 201, 409]:
+                        assoc_response.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    # Ignore 409 conflicts (duplicate associations)
+                    if e.response.status_code != 409:
+                        raise
+
+            # Fetch and return the updated session with embedded tags
+            session_detail_response = await client.get(
+                f"{BASE_URL}/nomad_sessions",
+                headers=HEADERS,
+                params={
+                    "id": f"eq.{session_id}",
+                    "select": "*",
+                },
+            )
+            session_detail_response.raise_for_status()
+            session = session_detail_response.json()[0]
+
+            # Fetch related tags via junction table
+            try:
+                tags_response = await client.get(
+                    f"{BASE_URL}/nomad_session_tags",
+                    headers=HEADERS,
+                    params={
+                        "session_id": f"eq.{session_id}",
+                        "select": "tag:nomad_tags(*)",
+                    },
+                )
+                if tags_response.status_code == 200:
+                    tag_data = tags_response.json()
+                    session["tags"] = [item["tag"] for item in tag_data if item.get("tag")]
+                else:
+                    session["tags"] = []
+            except Exception:
+                session["tags"] = []
+
+            # Fetch related notes (handle gracefully if table doesn't exist)
+            try:
+                notes_response = await client.get(
+                    f"{BASE_URL}/nomad_notes",
+                    headers=HEADERS,
+                    params={
+                        "session_id": f"eq.{session_id}",
+                        "select": "*",
+                        "order": "created_at.asc",
+                    },
+                )
+                if notes_response.status_code == 200:
+                    session["notes"] = notes_response.json()
+                else:
+                    session["notes"] = []
+            except Exception:
+                session["notes"] = []
+
+            # Fetch related marks (handle gracefully if table doesn't exist)
+            try:
+                marks_response = await client.get(
+                    f"{BASE_URL}/nomad_marks",
+                    headers=HEADERS,
+                    params={
+                        "session_id": f"eq.{session_id}",
+                        "select": "*",
+                        "order": "time.asc",
+                    },
+                )
+                if marks_response.status_code == 200:
+                    session["marks"] = marks_response.json()
+                else:
+                    session["marks"] = []
+            except Exception:
+                session["marks"] = []
+
+            return session
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=e.response.status_code, detail="Failed to associate tags")
     except httpx.ConnectError as e:
         raise HTTPException(status_code=503, detail="Database connection failed")
     except Exception as e:

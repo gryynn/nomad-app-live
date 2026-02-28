@@ -19,6 +19,7 @@ app.add_middleware(
 # Register routers
 app.include_router(sessions.router)
 app.include_router(tags.router)
+app.include_router(tags.sessions_tags_router)
 
 
 @app.get("/api/health")
