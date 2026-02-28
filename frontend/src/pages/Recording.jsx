@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import Waveform from "../components/Waveform.jsx";
 import VuMeter from "../components/VuMeter.jsx";
+import MarkItem from "../components/MarkItem.jsx";
 
 export default function Recording() {
   const { theme } = useTheme();
@@ -100,6 +101,12 @@ export default function Recording() {
     if (lastMark && elapsed - lastMark.time < 1) return;
 
     setMarks([...marks, { id: Date.now(), time: elapsed, tag: null }]);
+  };
+
+  const handleUpdateTag = (markId, tag) => {
+    setMarks(
+      marks.map((mark) => (mark.id === markId ? { ...mark, tag } : mark))
+    );
   };
 
   // Timer color based on mode
@@ -308,6 +315,31 @@ export default function Recording() {
           📌
         </button>
       </div>
+
+      {/* Marks List */}
+      {marks.length > 0 && (
+        <div className="marks-list mt-6 px-2">
+          <div
+            className="marks-header mb-3"
+            style={{
+              fontSize: "10px",
+              color: theme.textMuted,
+              opacity: 0.5,
+              fontWeight: 500,
+              letterSpacing: "0.05em",
+            }}
+          >
+            MARKS ({marks.length})
+          </div>
+          {marks.map((mark) => (
+            <MarkItem
+              key={mark.id}
+              mark={mark}
+              onUpdateTag={handleUpdateTag}
+            />
+          ))}
+        </div>
+      )}
 
       {/* CSS Animations */}
       <style>{`
