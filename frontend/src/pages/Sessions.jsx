@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
 import { DEFAULT_TAGS } from "../styles/themes.js";
@@ -33,6 +33,26 @@ export default function Sessions() {
         : [...prev, tagId]
     );
   };
+
+  // Combined filtering logic with useMemo
+  const filteredSessions = useMemo(() => {
+    return mockSessions.filter((session) => {
+      // Search filter (title, case-insensitive)
+      const matchesSearch = searchQuery.trim() === "" ||
+        session.title.toLowerCase().includes(searchQuery.toLowerCase());
+
+      // Tag filter (OR logic - match ANY selected tag)
+      const matchesTags = selectedTags.length === 0 ||
+        selectedTags.includes(session.tagId);
+
+      // Status filter
+      const matchesStatus = statusFilter === "all" ||
+        session.status === statusFilter;
+
+      // Combined (AND logic)
+      return matchesSearch && matchesTags && matchesStatus;
+    });
+  }, [searchQuery, selectedTags, statusFilter]);
 
   return (
     <div
@@ -131,19 +151,31 @@ export default function Sessions() {
         }}
       >
         <p className="text-sm" style={{ color: theme.textSoft }}>
-          {mockSessions.length} session{mockSessions.length > 1 ? "s" : ""} found
+          {filteredSessions.length} session{filteredSessions.length > 1 ? "s" : ""} found
         </p>
       </div>
 
       {/* Sessions List */}
       <div className="flex flex-col gap-3">
-        {mockSessions.map((session) => (
-          <SessionCard
-            key={session.id}
-            session={session}
-            onClick={(id) => navigate(`/sessions/${id}`)}
-          />
-        ))}
+        {filteredSessions.length === 0 ? (
+          <div
+            className="rounded-xl px-4 py-8 text-center"
+            style={{
+              background: theme.cardBg,
+              border: `1px solid ${theme.cardBorder}`,
+            }}
+          >
+            <p style={{ color: theme.textSoft }}>Aucune session trouvée</p>
+          </div>
+        ) : (
+          filteredSessions.map((session) => (
+            <SessionCard
+              key={session.id}
+              session={session}
+              onClick={(id) => navigate(`/sessions/${id}`)}
+            />
+          ))
+        )}
       </div>
     </div>
   );
