@@ -79,6 +79,40 @@ export default function PostCapture() {
     setTranscriptionProgress(0);
   };
 
+  // Save session handler
+  const handleSave = () => {
+    const sessionData = {
+      title: title || "Sans titre",
+      tags: selectedTags.map(t => ({ id: t.id, name: t.name })),
+      notes,
+      duration: validTime,
+      marks: validMarks,
+      mode: validMode,
+      transcription: transcriptionText ? {
+        text: transcriptionText,
+        engine: selectedEngine,
+        wordCount: transcriptionText.split(/\s+/).filter(w => w.length > 0).length
+      } : null
+    };
+
+    console.log('Session saved:', sessionData);
+    navigate('/');
+  };
+
+  // Delete session handler
+  const handleDelete = () => {
+    if (confirm('Supprimer cette session ?')) {
+      console.log('Session deleted');
+      navigate('/');
+    }
+  };
+
+  // Skip handler - save minimal data
+  const handleSkip = () => {
+    console.log('Session skipped - saving raw audio only');
+    navigate('/');
+  };
+
   // Progress animation effect - simulates transcription progress
   useEffect(() => {
     if (transcriptionState !== "processing") return;
@@ -440,6 +474,7 @@ export default function PostCapture() {
       <section className="flex items-center justify-between gap-3 mb-4">
         {/* Save Button - Primary Action */}
         <button
+          onClick={handleSave}
           className="flex-1 rounded-xl p-4 text-center font-medium"
           style={{
             background: theme.accent,
@@ -452,6 +487,7 @@ export default function PostCapture() {
 
         {/* Delete Button - Icon */}
         <button
+          onClick={handleDelete}
           className="rounded-xl p-4"
           style={{
             background: theme.cardBg,
@@ -464,6 +500,7 @@ export default function PostCapture() {
 
         {/* Skip Button - Ghost Style */}
         <button
+          onClick={handleSkip}
           className="rounded-xl p-4"
           style={{
             background: "transparent",
