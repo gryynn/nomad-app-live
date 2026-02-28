@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import sessions, tags
+from app.routers import sessions, tags, engines, upload, transcribe
 
 app = FastAPI(
     title="NOMAD API",
@@ -24,6 +24,9 @@ app.add_middleware(
 app.include_router(sessions.router, prefix="/api")
 app.include_router(tags.router, prefix="/api")
 app.include_router(tags.sessions_tags_router, prefix="/api")
+app.include_router(engines.router, prefix="/api")
+app.include_router(upload.router, prefix="/api")
+app.include_router(transcribe.router, prefix="/api")
 
 
 @app.get("/api/health")
