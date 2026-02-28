@@ -302,7 +302,7 @@ async def add_mark_to_session(session_id: str, mark: MarkCreate):
 
             # Insert the mark
             response = await client.post(
-                f"{BASE_URL}/nomad_marks",
+                f"{BASE_URL}/marks",
                 headers=HEADERS,
                 json=mark_data,
             )
@@ -351,7 +351,7 @@ async def add_note_to_session(session_id: str, note: NoteCreate):
 
             # Insert the note
             response = await client.post(
-                f"{BASE_URL}/nomad_notes",
+                f"{BASE_URL}/notes",
                 headers=HEADERS,
                 json=note_data,
             )
