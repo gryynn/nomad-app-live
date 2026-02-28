@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
+import { DEFAULT_TAGS, STICKY_TAG_IDS } from "../styles/themes.js";
 
 export default function PostCapture() {
   const { theme } = useTheme();
@@ -17,12 +18,29 @@ export default function PostCapture() {
 
   // Core state hooks
   const [title, setTitle] = useState("");
-  const [selectedTags, setSelectedTags] = useState([]); // Will be populated with sticky tags in subtask 1-2
+  const [selectedTags, setSelectedTags] = useState(
+    STICKY_TAG_IDS.map(id => DEFAULT_TAGS.find(tag => tag.id === id)).filter(Boolean)
+  );
   const [notes, setNotes] = useState("");
 
   // Determine initial transcription state based on mode and liveText
   const initialTranscriptionState = (mode === "live" && liveText) ? "live" : "idle";
   const [transcriptionState, setTranscriptionState] = useState(initialTranscriptionState);
+
+  // Tag toggle handler
+  const handleTagToggle = (tagId) => {
+    const tag = DEFAULT_TAGS.find(t => t.id === tagId);
+    if (!tag) return;
+
+    setSelectedTags(prev => {
+      const isSelected = prev.some(t => t.id === tagId);
+      if (isSelected) {
+        return prev.filter(t => t.id !== tagId);
+      } else {
+        return [...prev, tag];
+      }
+    });
+  };
 
   return (
     <div
@@ -37,6 +55,7 @@ export default function PostCapture() {
         <p>Mode: {mode}</p>
         <p>Marks: {marks.length}</p>
         <p>Transcription state: {transcriptionState}</p>
+        <p>Selected tags: {selectedTags.map(t => t.name).join(", ")}</p>
       </div>
     </div>
   );
