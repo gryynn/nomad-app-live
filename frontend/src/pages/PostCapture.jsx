@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
 import { DEFAULT_TAGS, STICKY_TAG_IDS, FONTS } from "../styles/themes.js";
 import TagChip from "../components/TagChip.jsx";
+import MarkItem from "../components/MarkItem.jsx";
 
 export default function PostCapture() {
   const { theme } = useTheme();
@@ -115,6 +116,30 @@ export default function PostCapture() {
           ))}
         </div>
       </section>
+
+      {/* Marks Review Section - Conditional */}
+      {marks.length > 0 && (
+        <section
+          className="rounded-xl p-4 mb-4"
+          style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        >
+          <label
+            className="block text-xs font-medium mb-3 uppercase tracking-wide"
+            style={{ color: theme.textMuted }}
+          >
+            Marques
+          </label>
+          <div className="flex flex-col">
+            {marks.map((mark, index) => (
+              <MarkItem
+                key={index}
+                timestamp={mark.timestamp}
+                label={mark.label}
+              />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
