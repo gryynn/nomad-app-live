@@ -196,6 +196,52 @@ export default function PostCapture() {
         </section>
       )}
 
+      {/* Transcription Section - State B: Idle (No transcription yet) */}
+      {transcriptionState === "idle" && (
+        <section
+          className="rounded-xl p-4 mb-4"
+          style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        >
+          <label
+            className="block text-xs font-medium mb-3 uppercase tracking-wide"
+            style={{ color: theme.textMuted }}
+          >
+            Transcription
+          </label>
+
+          {/* Engine Selector Dropdown */}
+          <div className="mb-3">
+            <select
+              value={selectedEngine}
+              onChange={(e) => setSelectedEngine(e.target.value)}
+              className="w-full rounded-lg p-3 text-base outline-none"
+              style={{
+                background: theme.bg,
+                border: `1px solid ${theme.cardBorder}`,
+                color: theme.text
+              }}
+            >
+              <option value="whisper">Groq Whisper</option>
+              <option value="deepgram">Deepgram Nova-3</option>
+              <option value="whisperx">WhisperX (GPU)</option>
+            </select>
+          </div>
+
+          {/* Trigger Transcription Button */}
+          <button
+            onClick={startTranscription}
+            className="w-full rounded-xl p-4 text-center font-medium"
+            style={{
+              background: theme.accent,
+              color: theme.bg,
+              border: "none"
+            }}
+          >
+            Transcrire →
+          </button>
+        </section>
+      )}
+
       {/* Notes Section */}
       <section
         className="rounded-xl p-4 mb-4"
