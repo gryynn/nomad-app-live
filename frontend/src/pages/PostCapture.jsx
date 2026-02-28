@@ -140,6 +140,27 @@ export default function PostCapture() {
           </div>
         </section>
       )}
+
+      {/* Notes Section */}
+      <section
+        className="rounded-xl p-4 mb-4"
+        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+      >
+        <label
+          className="block text-xs font-medium mb-2 uppercase tracking-wide"
+          style={{ color: theme.textMuted }}
+        >
+          Notes
+        </label>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Ajouter des notes..."
+          rows={4}
+          className="w-full bg-transparent border-none outline-none text-base resize-none"
+          style={{ color: theme.text }}
+        />
+      </section>
     </div>
   );
 }
