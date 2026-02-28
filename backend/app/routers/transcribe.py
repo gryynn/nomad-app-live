@@ -43,3 +43,23 @@ async def transcribe_session(session_id: str, request: TranscribeRequest):
         "status": "queued",
         "message": "Transcription job queued successfully"
     }
+
+
+@router.get("/queue")
+async def get_queue():
+    """
+    Get the current transcription queue status.
+
+    Returns a list of pending and active transcription jobs.
+
+    Returns:
+        List of queued transcription jobs with their status
+    """
+    # TODO: Implement actual queue retrieval logic
+    # For now, return empty queue
+    return {
+        "success": True,
+        "queue": [],
+        "total": 0,
+        "message": "Queue retrieved successfully"
+    }
