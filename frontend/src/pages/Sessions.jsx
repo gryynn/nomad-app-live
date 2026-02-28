@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
-import { DEFAULT_TAGS } from "../styles/themes.js";
+import { DEFAULT_TAGS, FONTS } from "../styles/themes.js";
 import SessionCard from "../components/SessionCard.jsx";
 
 export default function Sessions() {
@@ -69,8 +69,12 @@ export default function Sessions() {
           ←
         </button>
         <h1
-          className="text-lg font-light tracking-[0.25em]"
-          style={{ color: theme.text }}
+          className="text-xs"
+          style={{
+            fontFamily: FONTS.mono,
+            fontWeight: 400,
+            color: theme.textSoft,
+          }}
         >
           Sessions
         </h1>
@@ -150,8 +154,14 @@ export default function Sessions() {
           border: `1px solid ${theme.cardBorder}`,
         }}
       >
-        <p className="text-sm" style={{ color: theme.textSoft }}>
-          {filteredSessions.length} session{filteredSessions.length > 1 ? "s" : ""} found
+        <p
+          className="text-sm"
+          style={{
+            fontFamily: FONTS.mono,
+            color: theme.textSoft
+          }}
+        >
+          247 sessions · 0 transcrites · ~48h
         </p>
       </div>
 
