@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from supabase import create_client
+import httpx
 import uuid
 from pathlib import Path
 from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
@@ -10,14 +10,15 @@ router = APIRouter(prefix="/upload", tags=["upload"])
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".webm", ".ogg"}
 
 
-def get_supabase_client():
-    """Initialize Supabase client with service key."""
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase configuration missing"
-        )
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+HEADERS = {
+    "apikey": SUPABASE_SERVICE_KEY,
+    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=representation",
+    "Accept-Profile": "app_nomad",
+    "Content-Profile": "app_nomad",
+}
+BASE_URL = f"{SUPABASE_URL}/rest/v1"
 
 
 @router.post("/")
@@ -44,66 +45,57 @@ async def upload_audio(file: UploadFile = File(...)):
     # Generate session ID
     session_id = str(uuid.uuid4())
 
-    # For now, use a default user_id (will be replaced with actual user auth later)
-    user_id = "default-user"
+    user_id = "martun"
 
     # Construct storage path: {user_id}/{session_id}.{ext}
     storage_path = f"{user_id}/{session_id}{file_ext}"
 
     try:
-        # Initialize Supabase client
-        supabase = get_supabase_client()
-
-        # Read file content
         file_content = await file.read()
+        file_size = len(file_content)
 
-        # Upload to Supabase Storage
-        storage_response = supabase.storage.from_("nomad-audio").upload(
-            path=storage_path,
-            file=file_content,
-            file_options={
-                "content-type": file.content_type or "audio/mpeg",
-                "upsert": "false"
+        async with httpx.AsyncClient() as client:
+            # Upload to Supabase Storage bucket "nomad-audio"
+            storage_headers = {
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": file.content_type or "audio/mpeg",
             }
-        )
-
-        # Get public URL for the uploaded file
-        file_url = supabase.storage.from_("nomad-audio").get_public_url(storage_path)
-
-        # Create session record in app_nomad.sessions table
-        # Using Supabase schema parameter to target app_nomad schema
-        session_data = {
-            "id": session_id,
-            "user_id": user_id,
-            "duration": 0,  # Will be updated later
-            "input_mode": "upload",
-            "status": "uploaded",
-            "file_url": file_url,
-        }
-
-        # Insert session record with app_nomad schema
-        # Note: Python Supabase client uses schema() method to target specific schema
-        insert_response = (
-            supabase.schema("app_nomad")
-            .table("sessions")
-            .insert(session_data)
-            .execute()
-        )
-
-        return {
-            "session_id": session_id,
-            "file_url": file_url
-        }
-
-    except Exception as e:
-        # Handle storage quota errors
-        if "507" in str(e) or "quota" in str(e).lower():
-            raise HTTPException(
-                status_code=507,
-                detail="Insufficient storage space"
+            storage_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio/{storage_path}"
+            upload_resp = await client.post(
+                storage_url, headers=storage_headers, content=file_content
             )
-        # Handle other errors
-        raise HTTPException(
-            status_code=500,
-            detail=f"Upload failed: {str(e)}"
-        )
+            if upload_resp.status_code not in (200, 201):
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Storage upload failed: {upload_resp.text}"
+                )
+
+            # Build public URL
+            audio_url = f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{storage_path}"
+
+            # Create session record
+            session_data = {
+                "id": session_id,
+                "user_id": user_id,
+                "duration_seconds": 0,
+                "input_mode": "import",
+                "status": "uploaded",
+                "audio_url": audio_url,
+                "original_filename": file.filename,
+                "file_size_bytes": file_size,
+            }
+            resp = await client.post(
+                f"{BASE_URL}/sessions",
+                headers=HEADERS,
+                json=session_data,
+            )
+            if resp.status_code not in (200, 201):
+                raise HTTPException(status_code=500, detail=f"Session create failed: {resp.text}")
+
+        return {"session_id": session_id, "audio_url": audio_url}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
