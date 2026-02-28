@@ -103,3 +103,171 @@ async def list_sessions(
         raise HTTPException(status_code=e.response.status_code, detail="Failed to fetch sessions")
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{session_id}", response_model=SessionResponse)
+async def get_session(session_id: str):
+    """Get session detail with embedded tags, notes, and marks"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Fetch session with embedded related data
+            response = await client.get(
+                f"{BASE_URL}/nomad_sessions",
+                headers=HEADERS,
+                params={
+                    "id": f"eq.{session_id}",
+                    "select": "*",
+                },
+            )
+            response.raise_for_status()
+            sessions = response.json()
+
+            if not sessions or len(sessions) == 0:
+                raise HTTPException(status_code=404, detail="Session not found")
+
+            session = sessions[0]
+
+            # Fetch related tags via junction table (handle gracefully if table doesn't exist)
+            try:
+                tags_response = await client.get(
+                    f"{BASE_URL}/nomad_session_tags",
+                    headers=HEADERS,
+                    params={
+                        "session_id": f"eq.{session_id}",
+                        "select": "tag:nomad_tags(*)",
+                    },
+                )
+                if tags_response.status_code == 200:
+                    tag_data = tags_response.json()
+                    session["tags"] = [item["tag"] for item in tag_data if item.get("tag")]
+                else:
+                    session["tags"] = []
+            except Exception:
+                session["tags"] = []
+
+            # Fetch related notes (handle gracefully if table doesn't exist)
+            try:
+                notes_response = await client.get(
+                    f"{BASE_URL}/nomad_notes",
+                    headers=HEADERS,
+                    params={
+                        "session_id": f"eq.{session_id}",
+                        "select": "*",
+                        "order": "created_at.asc",
+                    },
+                )
+                if notes_response.status_code == 200:
+                    session["notes"] = notes_response.json()
+                else:
+                    session["notes"] = []
+            except Exception:
+                session["notes"] = []
+
+            # Fetch related marks (handle gracefully if table doesn't exist)
+            try:
+                marks_response = await client.get(
+                    f"{BASE_URL}/nomad_marks",
+                    headers=HEADERS,
+                    params={
+                        "session_id": f"eq.{session_id}",
+                        "select": "*",
+                        "order": "time.asc",
+                    },
+                )
+                if marks_response.status_code == 200:
+                    session["marks"] = marks_response.json()
+                else:
+                    session["marks"] = []
+            except Exception:
+                session["marks"] = []
+
+            return session
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=e.response.status_code, detail="Failed to fetch session")
+    except httpx.ConnectError as e:
+        raise HTTPException(status_code=503, detail="Database connection failed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.put("/{session_id}", response_model=SessionResponse)
+async def update_session(session_id: str, session_update: SessionUpdate):
+    """Update session fields"""
+    try:
+        # Build update data from provided fields
+        update_data = {}
+        if session_update.title is not None:
+            update_data["title"] = session_update.title
+        if session_update.status is not None:
+            update_data["status"] = session_update.status
+
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        async with httpx.AsyncClient() as client:
+            # Update the session
+            response = await client.patch(
+                f"{BASE_URL}/nomad_sessions",
+                headers=HEADERS,
+                params={"id": f"eq.{session_id}"},
+                json=update_data,
+            )
+            response.raise_for_status()
+            updated_sessions = response.json()
+
+            if not updated_sessions or len(updated_sessions) == 0:
+                raise HTTPException(status_code=404, detail="Session not found")
+
+            return updated_sessions[0]
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=e.response.status_code, detail="Failed to update session")
+    except httpx.ConnectError as e:
+        raise HTTPException(status_code=503, detail="Database connection failed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete("/{session_id}", status_code=204)
+async def delete_session(session_id: str):
+    """Delete a session"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Check if session exists first
+            check_response = await client.get(
+                f"{BASE_URL}/nomad_sessions",
+                headers=HEADERS,
+                params={"id": f"eq.{session_id}", "select": "id"},
+            )
+            check_response.raise_for_status()
+            sessions = check_response.json()
+
+            if not sessions or len(sessions) == 0:
+                raise HTTPException(status_code=404, detail="Session not found")
+
+            # Delete the session
+            response = await client.delete(
+                f"{BASE_URL}/nomad_sessions",
+                headers=HEADERS,
+                params={"id": f"eq.{session_id}"},
+            )
+            response.raise_for_status()
+
+            return None
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=e.response.status_code, detail="Failed to delete session")
+    except httpx.ConnectError as e:
+        raise HTTPException(status_code=503, detail="Database connection failed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
