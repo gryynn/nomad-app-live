@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
 import { DEFAULT_TAGS, STICKY_TAG_IDS, FONTS } from "../styles/themes.js";
@@ -72,6 +72,33 @@ export default function PostCapture() {
     setTranscriptionText("");
     setTranscriptionProgress(0);
   };
+
+  // Progress animation effect - simulates transcription progress
+  useEffect(() => {
+    if (transcriptionState !== "processing") return;
+
+    const duration = 4000; // 4 seconds total
+    const intervalTime = 50; // Update every 50ms
+    const steps = duration / intervalTime;
+    const increment = 100 / steps;
+
+    let currentProgress = 0;
+    const interval = setInterval(() => {
+      currentProgress += increment;
+      if (currentProgress >= 100) {
+        setTranscriptionProgress(100);
+        clearInterval(interval);
+        // Transition to complete state with mock transcription
+        setTimeout(() => {
+          completeTranscription("Ceci est une transcription simulée du contenu audio capturé. Le texte complet apparaîtra ici une fois le processus terminé.");
+        }, 200);
+      } else {
+        setTranscriptionProgress(currentProgress);
+      }
+    }, intervalTime);
+
+    return () => clearInterval(interval);
+  }, [transcriptionState]);
 
   return (
     <div
@@ -239,6 +266,74 @@ export default function PostCapture() {
           >
             Transcrire →
           </button>
+        </section>
+      )}
+
+      {/* Transcription Section - State C: Processing */}
+      {transcriptionState === "processing" && (
+        <section
+          className="rounded-xl p-4 mb-4"
+          style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        >
+          <label
+            className="block text-xs font-medium mb-3 uppercase tracking-wide"
+            style={{ color: theme.textMuted }}
+          >
+            Transcription
+          </label>
+
+          {/* Pulsing 'Transcription...' text */}
+          <div className="mb-4 flex items-center gap-2">
+            <span
+              style={{
+                color: theme.accent,
+                fontSize: "0.875rem",
+                fontWeight: 500,
+                animation: "pulse 1.5s ease-in-out infinite"
+              }}
+            >
+              Transcription...
+            </span>
+          </div>
+
+          {/* Progress bar */}
+          <div
+            className="rounded-full overflow-hidden"
+            style={{
+              background: theme.bg,
+              height: "0.5rem"
+            }}
+          >
+            <div
+              style={{
+                background: theme.accent,
+                height: "100%",
+                width: `${transcriptionProgress}%`,
+                transition: "width 0.05s linear"
+              }}
+            />
+          </div>
+
+          {/* Progress percentage */}
+          <div className="mt-2 text-right">
+            <span
+              style={{
+                color: theme.textSoft,
+                fontSize: "0.75rem",
+                fontFamily: FONTS.mono
+              }}
+            >
+              {Math.round(transcriptionProgress)}%
+            </span>
+          </div>
+
+          {/* Inline CSS for pulse animation */}
+          <style>{`
+            @keyframes pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.5; }
+            }
+          `}</style>
         </section>
       )}
 
