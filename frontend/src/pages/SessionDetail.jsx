@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
 import { FONTS, DEFAULT_TAGS } from "../styles/themes.js";
 import TagChip from "../components/TagChip.jsx";
+import MarkItem from "../components/MarkItem.jsx";
 
 // Mock session data for UI development
 const mockSession = {
@@ -510,6 +511,30 @@ export default function SessionDetail() {
           </div>
         </section>
       )}
+
+      {/* Marks Section */}
+      <section
+        className="rounded-xl p-4 mt-4"
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
+      >
+        <label
+          className="block text-xs font-medium mb-3 uppercase tracking-wide"
+          style={{ color: theme.textSoft }}
+        >
+          Marques
+        </label>
+        <div className="divide-y" style={{ borderColor: theme.cardBorder }}>
+          {mockSession.marks && mockSession.marks.length > 0 ? (
+            mockSession.marks.map((mark) => (
+              <MarkItem key={mark.id} timestamp={mark.timestamp} label={mark.label} />
+            ))
+          ) : (
+            <p style={{ color: theme.textSoft, fontSize: "0.875rem" }}>
+              Aucune marque
+            </p>
+          )}
+        </div>
+      </section>
 
       {/* Placeholder content */}
       <p className="mt-6" style={{ color: theme.textSoft }}>
