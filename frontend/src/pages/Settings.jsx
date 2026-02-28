@@ -235,6 +235,102 @@ export default function Settings() {
           </button>
         </div>
       </div>
+
+      {/* Engine Usage Statistics */}
+      <div
+        className="rounded-xl p-4 mt-4"
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
+      >
+        <div
+          style={{
+            fontSize: "9.5px",
+            color: theme.textSoft,
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+            marginBottom: "16px",
+          }}
+        >
+          Engine Usage
+        </div>
+
+        {/* Groq Whisper - 60% */}
+        <div style={{ marginBottom: "14px" }}>
+          <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
+            <span style={{ fontSize: "13px", color: theme.text }}>
+              Groq Whisper • 0.24€
+            </span>
+          </div>
+          <div
+            style={{
+              width: "100%",
+              height: "1.5px",
+              background: theme.sep,
+              borderRadius: "1px",
+            }}
+          >
+            <div
+              style={{
+                width: "60%",
+                height: "100%",
+                background: theme.accent,
+                borderRadius: "1px",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Deepgram Nova-3 - 30% */}
+        <div style={{ marginBottom: "14px" }}>
+          <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
+            <span style={{ fontSize: "13px", color: theme.text }}>
+              Deepgram Nova-3 • 0.15€
+            </span>
+          </div>
+          <div
+            style={{
+              width: "100%",
+              height: "1.5px",
+              background: theme.sep,
+              borderRadius: "1px",
+            }}
+          >
+            <div
+              style={{
+                width: "30%",
+                height: "100%",
+                background: theme.accent,
+                borderRadius: "1px",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* WhisperX - 10% */}
+        <div>
+          <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
+            <span style={{ fontSize: "13px", color: theme.text }}>
+              WhisperX (Local GPU) • 0.05€
+            </span>
+          </div>
+          <div
+            style={{
+              width: "100%",
+              height: "1.5px",
+              background: theme.sep,
+              borderRadius: "1px",
+            }}
+          >
+            <div
+              style={{
+                width: "10%",
+                height: "100%",
+                background: theme.accent,
+                borderRadius: "1px",
+              }}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
