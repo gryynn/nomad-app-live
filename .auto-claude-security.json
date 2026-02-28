@@ -128,24 +128,12 @@
     "zsh"
   ],
   "stack_commands": [
-    "ar",
-    "clang",
-    "clang++",
-    "cmake",
-    "g++",
-    "gcc",
     "ipython",
     "jupyter",
-    "ld",
-    "make",
-    "meson",
-    "ninja",
-    "nm",
     "node",
     "notebook",
     "npm",
     "npx",
-    "objdump",
     "pdb",
     "pip",
     "pip3",
@@ -153,7 +141,6 @@
     "pudb",
     "python",
     "python3",
-    "strip",
     "ts-node",
     "tsc",
     "tsx"
@@ -164,8 +151,7 @@
     "languages": [
       "python",
       "javascript",
-      "typescript",
-      "c"
+      "typescript"
     ],
     "package_managers": [],
     "frameworks": [],
@@ -183,7 +169,7 @@
     "shell_scripts": []
   },
   "project_dir": "C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live",
-  "created_at": "2026-02-28T02:02:15.143842",
-  "project_hash": "429806f6094b19d504ad21ce34dc9aac",
+  "created_at": "2026-02-28T01:43:50.149819",
+  "project_hash": "afc2899c61206043ed8f5034163807ea",
   "inherited_from": "C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live"
 }
