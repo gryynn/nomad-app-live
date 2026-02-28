@@ -26,8 +26,11 @@ export default function Home() {
   };
 
   const handleActionClick = (action) => {
-    // Navigation to be implemented later
-    navigate(`/${action}`);
+    if (action === "record" || action === "live") {
+      navigate(`/record?mode=${action === "record" ? "rec" : "live"}`);
+    } else {
+      navigate(`/${action}`);
+    }
   };
 
   return (
