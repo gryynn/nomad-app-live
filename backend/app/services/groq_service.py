@@ -119,11 +119,17 @@ class GroqService:
         segments = transcription_result.get("segments", [])
 
         # Update session record in app_nomad.sessions table
-        response = self.supabase.table("sessions").update({
-            "transcript": transcript_text,
-            "transcript_segments": segments,
-            "status": "transcribed"
-        }).eq("id", session_id).execute()
+        response = (
+            self.supabase.schema("app_nomad")
+            .table("sessions")
+            .update({
+                "transcript": transcript_text,
+                "transcript_segments": segments,
+                "status": "transcribed"
+            })
+            .eq("id", session_id)
+            .execute()
+        )
 
         if not response.data:
             raise Exception(f"Failed to update session {session_id} with transcript")
