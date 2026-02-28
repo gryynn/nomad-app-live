@@ -337,6 +337,78 @@ export default function PostCapture() {
         </section>
       )}
 
+      {/* Transcription Section - State D: Complete */}
+      {transcriptionState === "complete" && (
+        <section
+          className="rounded-xl p-4 mb-4"
+          style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        >
+          {/* Header with status, engine, and word count */}
+          <div className="flex items-center gap-2 mb-3">
+            <span style={{ color: theme.green, fontSize: "0.875rem", fontWeight: 500 }}>
+              ✓ Terminé
+            </span>
+            <span style={{ color: theme.textMuted, fontSize: "0.875rem" }}>·</span>
+            <span style={{ color: theme.textSoft, fontSize: "0.875rem" }}>
+              {selectedEngine === "whisper" ? "Groq Whisper" :
+               selectedEngine === "deepgram" ? "Deepgram Nova-3" :
+               "WhisperX"}
+            </span>
+            <span style={{ color: theme.textMuted, fontSize: "0.875rem" }}>·</span>
+            <span style={{ color: theme.textSoft, fontSize: "0.875rem" }}>
+              {transcriptionText.split(/\s+/).filter(word => word.length > 0).length} mots
+            </span>
+          </div>
+
+          {/* Full transcription text */}
+          <div
+            className="mb-3"
+            style={{
+              color: theme.text,
+              lineHeight: "1.5rem",
+              fontSize: "0.875rem"
+            }}
+          >
+            {transcriptionText}
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              className="flex-1 rounded-lg p-2 text-center text-sm font-medium"
+              style={{
+                background: theme.bg,
+                border: `1px solid ${theme.cardBorder}`,
+                color: theme.text
+              }}
+            >
+              📝 Éditer
+            </button>
+            <button
+              className="flex-1 rounded-lg p-2 text-center text-sm font-medium"
+              style={{
+                background: theme.bg,
+                border: `1px solid ${theme.cardBorder}`,
+                color: theme.text
+              }}
+            >
+              📋 Copier
+            </button>
+            <button
+              onClick={retryTranscription}
+              className="flex-1 rounded-lg p-2 text-center text-sm font-medium"
+              style={{
+                background: theme.bg,
+                border: `1px solid ${theme.cardBorder}`,
+                color: theme.text
+              }}
+            >
+              🔄 Refaire
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* Notes Section */}
       <section
         className="rounded-xl p-4 mb-4"
