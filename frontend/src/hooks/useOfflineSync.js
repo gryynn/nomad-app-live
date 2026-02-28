@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { openDB } from "idb";
 
 const DB_NAME = "nomad-offline";
@@ -23,16 +23,27 @@ export function useOfflineSync() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingCount, setPendingCount] = useState(0);
   const [syncProgress, setSyncProgress] = useState({ total: 0, synced: 0 });
+  const uploadFnRef = useRef(null);
+
+  // Update pending count
+  const updatePendingCount = useCallback(async () => {
+    const db = await getDb();
+    const sessions = await db.getAll("pending-sessions");
+    const recordings = await db.getAll("pending-recordings");
+    setPendingCount(sessions.length + recordings.length);
+  }, []);
 
   const saveSessionOffline = useCallback(async (session) => {
     const db = await getDb();
     await db.put("pending-sessions", session);
-  }, []);
+    await updatePendingCount();
+  }, [updatePendingCount]);
 
   const saveRecordingOffline = useCallback(async (recording) => {
     const db = await getDb();
     await db.put("pending-recordings", recording);
-  }, []);
+    await updatePendingCount();
+  }, [updatePendingCount]);
 
   const getPendingSessions = useCallback(async () => {
     const db = await getDb();
@@ -47,14 +58,19 @@ export function useOfflineSync() {
   const removePendingSession = useCallback(async (id) => {
     const db = await getDb();
     await db.delete("pending-sessions", id);
-  }, []);
+    await updatePendingCount();
+  }, [updatePendingCount]);
 
   const removePendingRecording = useCallback(async (id) => {
     const db = await getDb();
     await db.delete("pending-recordings", id);
-  }, []);
+    await updatePendingCount();
+  }, [updatePendingCount]);
 
   const syncPending = useCallback(async (uploadFn) => {
+    // Store uploadFn for auto-sync on reconnection
+    uploadFnRef.current = uploadFn;
+
     setSyncProgress({ total: 0, synced: 0 });
 
     const sessions = await getPendingSessions();
@@ -83,6 +99,32 @@ export function useOfflineSync() {
       }
     }
   }, [getPendingSessions, getPendingRecordings, removePendingSession, removePendingRecording]);
+
+  // Set up online/offline detection and auto-sync
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      // Auto-sync when coming back online
+      if (uploadFnRef.current) {
+        syncPending(uploadFnRef.current);
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    // Update pending count on mount
+    updatePendingCount();
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [syncPending, updatePendingCount]);
 
   return {
     isOnline,
