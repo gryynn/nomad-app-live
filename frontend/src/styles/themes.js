@@ -52,14 +52,17 @@ export const FONTS = {
 };
 
 export const DEFAULT_TAGS = [
-  { id: "1", name: "Insight", emoji: "🧠", hue: "#8888BB" },
-  { id: "2", name: "Call", emoji: "📞", hue: "#BB8888" },
-  { id: "3", name: "Podcast", emoji: "🎙️", hue: "#B8A060" },
-  { id: "4", name: "Mémo", emoji: "📝", hue: "#6BAA88" },
-  { id: "5", name: "Music", emoji: "🎵", hue: "#B080A0" },
-  { id: "6", name: "Sample", emoji: "🎹", hue: "#9080B0" },
-  { id: "7", name: "Travail", emoji: "💼", hue: "#7098BB" },
-  { id: "8", name: "Idée", emoji: "💡", hue: "#C09060" },
-  { id: "9", name: "Learning", emoji: "🎓", hue: "#60A898" },
-  { id: "10", name: "Perso", emoji: "🏠", hue: "#888888" }
+  { id: "1", name: "Insight", emoji: "🧠", color: "#8888BB" },
+  { id: "2", name: "Call", emoji: "📞", color: "#BB8888" },
+  { id: "3", name: "Podcast", emoji: "🎙️", color: "#B8A060" },
+  { id: "4", name: "Mémo", emoji: "📝", color: "#6BAA88" },
+  { id: "5", name: "Music", emoji: "🎵", color: "#B080A0" },
+  { id: "6", name: "Sample", emoji: "🎹", color: "#9080B0" },
+  { id: "7", name: "Travail", emoji: "💼", color: "#7098BB" },
+  { id: "8", name: "Idée", emoji: "💡", color: "#C09060" },
+  { id: "9", name: "Learning", emoji: "🎓", color: "#60A898" },
+  { id: "10", name: "Perso", emoji: "🏠", color: "#888888" }
 ];
+
+// Sticky tags are pre-selected by default on the post-capture screen
+export const STICKY_TAG_IDS = ["4"]; // Mémo is the default sticky tag
