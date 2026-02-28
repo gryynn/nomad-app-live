@@ -16,7 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register routers
+# Register routers with /api prefix
 app.include_router(sessions.router, prefix="/api")
 app.include_router(tags.router, prefix="/api")
 app.include_router(tags.sessions_tags_router, prefix="/api")

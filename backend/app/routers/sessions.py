@@ -18,13 +18,13 @@ HEADERS = {
     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
     "Content-Type": "application/json",
     "Prefer": "return=representation",
-    "Accept-Profile": "n8n_transcription",
-    "Content-Profile": "n8n_transcription",
+    "Accept-Profile": "app_nomad",
+    "Content-Profile": "app_nomad",
 }
 
 BASE_URL = f"{SUPABASE_URL}/rest/v1"
 
-router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
 @router.post("/", response_model=SessionResponse, status_code=201)
@@ -50,7 +50,7 @@ async def create_session(session: SessionCreate):
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{BASE_URL}/nomad_sessions",
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 json=session_data,
             )
@@ -93,7 +93,7 @@ async def list_sessions(
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{BASE_URL}/nomad_sessions",
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params=params,
             )
@@ -112,7 +112,7 @@ async def get_session(session_id: str):
         async with httpx.AsyncClient() as client:
             # Fetch session with embedded related data
             response = await client.get(
-                f"{BASE_URL}/nomad_sessions",
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={
                     "id": f"eq.{session_id}",
@@ -130,11 +130,11 @@ async def get_session(session_id: str):
             # Fetch related tags via junction table (handle gracefully if table doesn't exist)
             try:
                 tags_response = await client.get(
-                    f"{BASE_URL}/nomad_session_tags",
+                    f"{BASE_URL}/session_tags",
                     headers=HEADERS,
                     params={
                         "session_id": f"eq.{session_id}",
-                        "select": "tag:nomad_tags(*)",
+                        "select": "tag:tags(*)",
                     },
                 )
                 if tags_response.status_code == 200:
@@ -148,7 +148,7 @@ async def get_session(session_id: str):
             # Fetch related notes (handle gracefully if table doesn't exist)
             try:
                 notes_response = await client.get(
-                    f"{BASE_URL}/nomad_notes",
+                    f"{BASE_URL}/notes",
                     headers=HEADERS,
                     params={
                         "session_id": f"eq.{session_id}",
@@ -166,7 +166,7 @@ async def get_session(session_id: str):
             # Fetch related marks (handle gracefully if table doesn't exist)
             try:
                 marks_response = await client.get(
-                    f"{BASE_URL}/nomad_marks",
+                    f"{BASE_URL}/marks",
                     headers=HEADERS,
                     params={
                         "session_id": f"eq.{session_id}",
@@ -211,7 +211,7 @@ async def update_session(session_id: str, session_update: SessionUpdate):
         async with httpx.AsyncClient() as client:
             # Update the session
             response = await client.patch(
-                f"{BASE_URL}/nomad_sessions",
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={"id": f"eq.{session_id}"},
                 json=update_data,
@@ -242,7 +242,7 @@ async def delete_session(session_id: str):
         async with httpx.AsyncClient() as client:
             # Check if session exists first
             check_response = await client.get(
-                f"{BASE_URL}/nomad_sessions",
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={"id": f"eq.{session_id}", "select": "id"},
             )
@@ -254,7 +254,7 @@ async def delete_session(session_id: str):
 
             # Delete the session
             response = await client.delete(
-                f"{BASE_URL}/nomad_sessions",
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={"id": f"eq.{session_id}"},
             )
@@ -280,7 +280,7 @@ async def add_mark_to_session(session_id: str, mark: MarkCreate):
         async with httpx.AsyncClient() as client:
             # Check if session exists first
             check_response = await client.get(
-                f"{BASE_URL}/nomad_sessions",
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={"id": f"eq.{session_id}", "select": "id"},
             )
@@ -332,7 +332,7 @@ async def add_note_to_session(session_id: str, note: NoteCreate):
         async with httpx.AsyncClient() as client:
             # Check if session exists first
             check_response = await client.get(
-                f"{BASE_URL}/nomad_sessions",
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={"id": f"eq.{session_id}", "select": "id"},
             )

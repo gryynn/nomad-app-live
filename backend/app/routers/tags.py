@@ -16,13 +16,13 @@ HEADERS = {
     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
     "Content-Type": "application/json",
     "Prefer": "return=representation",
-    "Accept-Profile": "n8n_transcription",
-    "Content-Profile": "n8n_transcription",
+    "Accept-Profile": "app_nomad",
+    "Content-Profile": "app_nomad",
 }
 
 BASE_URL = f"{SUPABASE_URL}/rest/v1"
 
-router = APIRouter(prefix="/api/tags", tags=["tags"])
+router = APIRouter(prefix="/tags", tags=["tags"])
 
 
 @router.get("/", response_model=List[TagResponse])
@@ -51,7 +51,7 @@ async def list_tags(
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{BASE_URL}/nomad_tags",
+                f"{BASE_URL}/tags",
                 headers=HEADERS,
                 params=params,
             )
@@ -62,7 +62,7 @@ async def list_tags(
             for tag in tags:
                 try:
                     count_response = await client.get(
-                        f"{BASE_URL}/nomad_session_tags",
+                        f"{BASE_URL}/session_tags",
                         headers=HEADERS,
                         params={
                             "tag_id": f"eq.{tag['id']}",
@@ -107,7 +107,7 @@ async def create_tag(tag: TagCreate):
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{BASE_URL}/nomad_tags",
+                f"{BASE_URL}/tags",
                 headers=HEADERS,
                 json=tag_data,
             )
@@ -132,7 +132,7 @@ async def get_tag(tag_id: str):
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{BASE_URL}/nomad_tags",
+                f"{BASE_URL}/tags",
                 headers=HEADERS,
                 params={
                     "id": f"eq.{tag_id}",
@@ -150,7 +150,7 @@ async def get_tag(tag_id: str):
             # Add session count
             try:
                 count_response = await client.get(
-                    f"{BASE_URL}/nomad_session_tags",
+                    f"{BASE_URL}/session_tags",
                     headers=HEADERS,
                     params={
                         "tag_id": f"eq.{tag_id}",
@@ -204,7 +204,7 @@ async def update_tag(tag_id: str, tag_update: TagUpdate):
         async with httpx.AsyncClient() as client:
             # Update the tag
             response = await client.patch(
-                f"{BASE_URL}/nomad_tags",
+                f"{BASE_URL}/tags",
                 headers=HEADERS,
                 params={"id": f"eq.{tag_id}"},
                 json=update_data,
@@ -235,7 +235,7 @@ async def delete_tag(tag_id: str):
         async with httpx.AsyncClient() as client:
             # Check if tag exists first
             check_response = await client.get(
-                f"{BASE_URL}/nomad_tags",
+                f"{BASE_URL}/tags",
                 headers=HEADERS,
                 params={"id": f"eq.{tag_id}", "select": "id"},
             )
@@ -247,7 +247,7 @@ async def delete_tag(tag_id: str):
 
             # Delete the tag (junction table entries will cascade delete)
             response = await client.delete(
-                f"{BASE_URL}/nomad_tags",
+                f"{BASE_URL}/tags",
                 headers=HEADERS,
                 params={"id": f"eq.{tag_id}"},
             )
@@ -267,7 +267,7 @@ async def delete_tag(tag_id: str):
 
 
 # Separate router for session-tags association (different URL prefix)
-sessions_tags_router = APIRouter(prefix="/api/sessions", tags=["tags"])
+sessions_tags_router = APIRouter(prefix="/sessions", tags=["tags"])
 
 
 @sessions_tags_router.post("/{session_id}/tags", response_model=SessionResponse)
@@ -277,7 +277,7 @@ async def associate_tags_with_session(session_id: str, tag_assoc: TagAssociation
         async with httpx.AsyncClient() as client:
             # First, verify the session exists
             session_response = await client.get(
-                f"{BASE_URL}/nomad_sessions",
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={
                     "id": f"eq.{session_id}",
@@ -300,7 +300,7 @@ async def associate_tags_with_session(session_id: str, tag_assoc: TagAssociation
 
                 try:
                     assoc_response = await client.post(
-                        f"{BASE_URL}/nomad_session_tags",
+                        f"{BASE_URL}/session_tags",
                         headers=HEADERS,
                         json=association_data,
                     )
@@ -314,7 +314,7 @@ async def associate_tags_with_session(session_id: str, tag_assoc: TagAssociation
 
             # Fetch and return the updated session with embedded tags
             session_detail_response = await client.get(
-                f"{BASE_URL}/nomad_sessions",
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={
                     "id": f"eq.{session_id}",
@@ -327,11 +327,11 @@ async def associate_tags_with_session(session_id: str, tag_assoc: TagAssociation
             # Fetch related tags via junction table
             try:
                 tags_response = await client.get(
-                    f"{BASE_URL}/nomad_session_tags",
+                    f"{BASE_URL}/session_tags",
                     headers=HEADERS,
                     params={
                         "session_id": f"eq.{session_id}",
-                        "select": "tag:nomad_tags(*)",
+                        "select": "tag:tags(*)",
                     },
                 )
                 if tags_response.status_code == 200:
@@ -345,7 +345,7 @@ async def associate_tags_with_session(session_id: str, tag_assoc: TagAssociation
             # Fetch related notes (handle gracefully if table doesn't exist)
             try:
                 notes_response = await client.get(
-                    f"{BASE_URL}/nomad_notes",
+                    f"{BASE_URL}/notes",
                     headers=HEADERS,
                     params={
                         "session_id": f"eq.{session_id}",
@@ -363,7 +363,7 @@ async def associate_tags_with_session(session_id: str, tag_assoc: TagAssociation
             # Fetch related marks (handle gracefully if table doesn't exist)
             try:
                 marks_response = await client.get(
-                    f"{BASE_URL}/nomad_marks",
+                    f"{BASE_URL}/marks",
                     headers=HEADERS,
                     params={
                         "session_id": f"eq.{session_id}",
