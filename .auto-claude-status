@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "002-frontend-implement-design-system-with-oled-light-t",
+  "spec": "008-frontend-implement-sessions-browser-with-search-fi",
   "state": "building",
   "subtasks": {
-    "completed": 7,
+    "completed": 3,
     "total": 8,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Verify Theme Hook and Build",
+    "current": "SessionCard Component",
     "id": null,
-    "total": 2
+    "total": 1
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 8,
-    "started_at": "2026-02-28T01:53:09.544784"
+    "number": 4,
+    "started_at": "2026-02-28T10:53:17.959248"
   },
-  "last_update": "2026-02-28T02:01:59.168190"
+  "last_update": "2026-02-28T10:58:11.803451"
 }
