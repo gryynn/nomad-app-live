@@ -273,7 +273,7 @@ export const tags = [
     emoji: "💼",
     parent_id: null,
     mirai_item_id: null,
-    color: "#C8FF00",
+    hue: "#7098BB",
     created_at: "2026-01-15T10:00:00Z",
   },
   {
@@ -282,7 +282,7 @@ export const tags = [
     emoji: "💭",
     parent_id: null,
     mirai_item_id: null,
-    color: "#00D9FF",
+    hue: "#888888",
     created_at: "2026-01-15T10:01:00Z",
   },
   {
@@ -291,7 +291,7 @@ export const tags = [
     emoji: "📚",
     parent_id: null,
     mirai_item_id: "mirai-edu-001",
-    color: "#FF6B9D",
+    hue: "#60A898",
     created_at: "2026-01-15T10:02:00Z",
   },
   {
@@ -300,7 +300,7 @@ export const tags = [
     emoji: "🎙️",
     parent_id: null,
     mirai_item_id: null,
-    color: "#FFC700",
+    hue: "#B8A060",
     created_at: "2026-01-20T14:30:00Z",
   },
   {
@@ -309,7 +309,7 @@ export const tags = [
     emoji: "🎵",
     parent_id: null,
     mirai_item_id: null,
-    color: "#9B59B6",
+    hue: "#B080A0",
     created_at: "2026-01-22T09:15:00Z",
   },
   {
@@ -318,7 +318,7 @@ export const tags = [
     emoji: "🧘",
     parent_id: null,
     mirai_item_id: "mirai-wellness-001",
-    color: "#2ECC71",
+    hue: "#6BAA88",
     created_at: "2026-01-25T07:00:00Z",
   },
   {
@@ -327,7 +327,7 @@ export const tags = [
     emoji: "🔬",
     parent_id: null,
     mirai_item_id: "mirai-research-001",
-    color: "#3498DB",
+    hue: "#8888BB",
     created_at: "2026-02-01T11:00:00Z",
   },
   // Child tags (hierarchical)
@@ -337,7 +337,7 @@ export const tags = [
     emoji: "👥",
     parent_id: "tag-work",
     mirai_item_id: null,
-    color: "#C8FF00",
+    hue: "#7098BB",
     created_at: "2026-01-16T10:00:00Z",
   },
   {
@@ -346,7 +346,7 @@ export const tags = [
     emoji: "📊",
     parent_id: "tag-work",
     mirai_item_id: null,
-    color: "#C8FF00",
+    hue: "#7098BB",
     created_at: "2026-01-16T10:01:00Z",
   },
   {
@@ -355,7 +355,7 @@ export const tags = [
     emoji: "🎓",
     parent_id: "tag-education",
     mirai_item_id: "mirai-edu-lectures",
-    color: "#FF6B9D",
+    hue: "#60A898",
     created_at: "2026-01-18T09:00:00Z",
   },
   {
@@ -364,7 +364,7 @@ export const tags = [
     emoji: "🛠️",
     parent_id: "tag-education",
     mirai_item_id: "mirai-edu-workshops",
-    color: "#FF6B9D",
+    hue: "#60A898",
     created_at: "2026-01-18T09:01:00Z",
   },
   {
@@ -373,7 +373,7 @@ export const tags = [
     emoji: "📝",
     parent_id: "tag-personal",
     mirai_item_id: null,
-    color: "#00D9FF",
+    hue: "#888888",
     created_at: "2026-01-20T08:00:00Z",
   },
   {
@@ -382,7 +382,7 @@ export const tags = [
     emoji: "💡",
     parent_id: "tag-personal",
     mirai_item_id: null,
-    color: "#00D9FF",
+    hue: "#888888",
     created_at: "2026-01-20T08:01:00Z",
   },
 ];

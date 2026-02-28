@@ -6,9 +6,9 @@ export default function TagChip({ tag, selected, onToggle, size = "md" }) {
       onClick={() => onToggle?.(tag.id)}
       className={`rounded-full inline-flex items-center gap-1.5 font-medium transition-all ${padding}`}
       style={{
-        background: selected ? tag.color + "22" : "transparent",
-        border: `1px solid ${selected ? tag.color : tag.color + "44"}`,
-        color: tag.color,
+        background: selected ? tag.hue + "22" : "transparent",
+        border: `1px solid ${selected ? tag.hue : tag.hue + "44"}`,
+        color: tag.hue,
         opacity: selected ? 1 : 0.65,
       }}
     >

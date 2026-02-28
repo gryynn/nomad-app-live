@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
 import { FONTS, DEFAULT_TAGS } from "../styles/themes.js";
 import TagChip from "../components/TagChip.jsx";
@@ -37,15 +37,15 @@ const mockSession = {
       id: "tag-philosophy",
       name: "Philosophie",
       emoji: "🤔",
-      color: "#9B59B6",
-      parentId: null,
+      hue: "#9080B0",
+      parent_id: null,
     },
     {
       id: "tag-technology",
       name: "Technologie",
       emoji: "💻",
-      color: "#3498DB",
-      parentId: null,
+      hue: "#7098BB",
+      parent_id: null,
     },
   ],
 
@@ -160,6 +160,7 @@ const mockSession = {
 };
 
 export default function SessionDetail() {
+  const { id } = useParams();
   const { theme } = useTheme();
   const navigate = useNavigate();
 
