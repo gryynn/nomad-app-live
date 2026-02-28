@@ -4,10 +4,16 @@ const DB_NAME = "nomad-offline";
 const STORE_NAME = "pending-sessions";
 
 async function getDb() {
-  return openDB(DB_NAME, 1, {
+  return openDB(DB_NAME, 2, {
     upgrade(db) {
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: "id" });
+      if (!db.objectStoreNames.contains("pending-sessions")) {
+        db.createObjectStore("pending-sessions", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("pending-recordings")) {
+        db.createObjectStore("pending-recordings", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("cached-sessions")) {
+        db.createObjectStore("cached-sessions", { keyPath: "id" });
       }
     },
   });
