@@ -18,13 +18,35 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  // Only cache GET requests for static assets
+  // Only cache GET requests
   if (event.request.method !== "GET") return;
 
-  // Skip API and WebSocket requests
   const url = new URL(event.request.url);
-  if (url.pathname.startsWith("/api") || url.pathname.startsWith("/ws")) return;
 
+  // Skip WebSocket requests
+  if (url.pathname.startsWith("/ws")) return;
+
+  // Network-first strategy for API requests
+  if (url.pathname.startsWith("/api")) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          // Cache successful responses
+          if (response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => {
+          // Fallback to cache if network fails
+          return caches.match(event.request);
+        })
+    );
+    return;
+  }
+
+  // Cache-first strategy for static assets
   event.respondWith(
     caches.match(event.request).then((cached) => {
       return cached || fetch(event.request).then((response) => {
