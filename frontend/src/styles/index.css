@@ -43,3 +43,13 @@ body {
   0%, 100% { opacity: 0.7; }
   50% { opacity: 0.25; }
 }
+
+@keyframes nBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes nBreath {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
