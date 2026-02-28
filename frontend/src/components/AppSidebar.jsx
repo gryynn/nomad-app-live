@@ -14,14 +14,13 @@ import {
   Power,
   Moon,
   Sun,
-  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { useTheme } from "@/hooks/useTheme";
-import { getEngineStatus as fetchEngineStatus, wakeWynona } from "@/lib/api";
+import { getEngineStatus as fetchEngines, wakeWynona } from "@/lib/api";
 
 const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -36,18 +35,11 @@ const CAPTURE_MODES = [
   { mode: "paste", label: "Paste", icon: ClipboardPaste, desc: "Coller texte" },
 ];
 
-const ENGINE_NAMES = {
-  groq: "Groq Whisper",
-  deepgram: "Deepgram",
-  wynona: "WYNONA",
-  local: "Local",
-};
-
 export default function AppSidebar({ collapsed, onToggle, onCapture }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { mode, toggle } = useTheme();
-  const [engines, setEngines] = useState({});
+  const [engines, setEngines] = useState([]);
   const [selectedEngine, setSelectedEngine] = useState(
     () => localStorage.getItem("nomad-engine") || "groq"
   );
@@ -64,12 +56,8 @@ export default function AppSidebar({ collapsed, onToggle, onCapture }) {
   }, [selectedEngine]);
 
   async function loadEngines() {
-    try {
-      const data = await fetchEngineStatus();
-      setEngines(data);
-    } catch {
-      // API might not be available
-    }
+    const data = await fetchEngines();
+    setEngines(data);
   }
 
   async function handleWakeWynona() {
@@ -84,14 +72,12 @@ export default function AppSidebar({ collapsed, onToggle, onCapture }) {
     }
   }
 
-  function getEngineStatus(name) {
-    const e = engines[name];
-    if (!e) return { online: false, label: "?" };
-    return {
-      online: e.status === "online" || e.status === "ready",
-      label: e.status || "offline",
-    };
+  function isOnline(engine) {
+    return engine.status === "online" || engine.status === "ready";
   }
+
+  const wynonaEngine = engines.find((e) => e.id === "wynona");
+  const wynonaOnline = wynonaEngine ? isOnline(wynonaEngine) : false;
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -168,14 +154,14 @@ export default function AppSidebar({ collapsed, onToggle, onCapture }) {
               Moteurs
             </span>
           )}
-          {Object.keys(ENGINE_NAMES).map((key) => {
-            const status = getEngineStatus(key);
-            const selected = selectedEngine === key;
+          {engines.map((engine) => {
+            const online = isOnline(engine);
+            const selected = selectedEngine === engine.id;
             return collapsed ? (
-              <Tooltip key={key}>
+              <Tooltip key={engine.id}>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={() => setSelectedEngine(key)}
+                    onClick={() => setSelectedEngine(engine.id)}
                     className={cn(
                       "flex h-8 w-full items-center justify-center rounded-md transition-colors cursor-pointer",
                       selected
@@ -183,17 +169,17 @@ export default function AppSidebar({ collapsed, onToggle, onCapture }) {
                         : "text-sidebar-foreground/50 hover:bg-sidebar-accent"
                     )}
                   >
-                    <div className={cn("h-2 w-2 rounded-full", status.online ? "bg-emerald-500" : "bg-muted-foreground/30")} />
+                    <div className={cn("h-2 w-2 rounded-full", online ? "bg-emerald-500" : "bg-muted-foreground/30")} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">
-                  {ENGINE_NAMES[key]} — {status.label}
+                  {engine.name} — {online ? "online" : "offline"}
                 </TooltipContent>
               </Tooltip>
             ) : (
               <button
-                key={key}
-                onClick={() => setSelectedEngine(key)}
+                key={engine.id}
+                onClick={() => setSelectedEngine(engine.id)}
                 className={cn(
                   "flex h-8 items-center gap-2 rounded-md px-3 text-xs transition-colors cursor-pointer",
                   selected
@@ -205,18 +191,18 @@ export default function AppSidebar({ collapsed, onToggle, onCapture }) {
                   className={cn(
                     "h-1.5 w-1.5 rounded-full shrink-0",
                     selected && "ring-1 ring-primary ring-offset-1 ring-offset-sidebar",
-                    status.online ? "bg-emerald-500" : "bg-muted-foreground/30"
+                    online ? "bg-emerald-500" : "bg-muted-foreground/30"
                   )}
                 />
-                <span className="truncate font-mono">{ENGINE_NAMES[key]}</span>
-                <span className={cn("ml-auto text-[10px]", status.online ? "text-emerald-500/70" : "text-muted-foreground/50")}>
-                  {status.online ? "on" : "off"}
+                <span className="truncate font-mono">{engine.name}</span>
+                <span className={cn("ml-auto text-[10px]", online ? "text-emerald-500/70" : "text-muted-foreground/50")}>
+                  {online ? "on" : "off"}
                 </span>
               </button>
             );
           })}
           {/* Wake WYNONA button */}
-          {!collapsed && selectedEngine === "wynona" && !getEngineStatus("wynona").online && (
+          {!collapsed && selectedEngine === "wynona" && !wynonaOnline && (
             <Button
               variant="outline"
               size="sm"
