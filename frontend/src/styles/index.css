@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-nomad-lime: #C8FF00;
+  --color-nomad-black: #0A0A0A;
+
+  --color-tag-insight: #6366F1;
+  --color-tag-call: #EF4444;
+  --color-tag-podcast: #F59E0B;
+  --color-tag-memo: #10B981;
+  --color-tag-music: #EC4899;
+  --color-tag-sample: #8B5CF6;
+  --color-tag-travail: #3B82F6;
+  --color-tag-idee: #F97316;
+  --color-tag-learning: #14B8A6;
+  --color-tag-perso: #6B7280;
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* PWA standalone: remove browser chrome padding */
+@media (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

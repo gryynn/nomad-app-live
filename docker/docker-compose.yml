@@ -1,0 +1,34 @@
+services:
+  nomad-api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: nomad-api
+    env_file:
+      - ../.env
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nomad.rule=Host(`recorder.mgdesign.cloud`)"
+      - "traefik.http.routers.nomad.tls=true"
+      - "traefik.http.services.nomad.loadbalancer.server.port=8400"
+    networks:
+      - traefik_proxy
+    restart: unless-stopped
+
+  nomad-frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: nomad-frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nomad-ui.rule=Host(`recorder.mgdesign.cloud`) && !PathPrefix(`/api`) && !PathPrefix(`/ws`)"
+      - "traefik.http.routers.nomad-ui.tls=true"
+      - "traefik.http.services.nomad-ui.loadbalancer.server.port=80"
+    networks:
+      - traefik_proxy
+    restart: unless-stopped
+
+networks:
+  traefik_proxy:
+    external: true

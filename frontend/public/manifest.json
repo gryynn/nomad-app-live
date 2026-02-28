@@ -1,0 +1,14 @@
+{
+  "name": "NOMAD",
+  "short_name": "NOMAD",
+  "description": "Universal audio capture & transcription",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#C8FF00",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
