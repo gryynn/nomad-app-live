@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme.jsx";
 import { DEFAULT_TAGS, STICKY_TAG_IDS, FONTS } from "../styles/themes.js";
+import TagChip from "../components/TagChip.jsx";
 
 export default function PostCapture() {
   const { theme } = useTheme();
@@ -92,12 +93,28 @@ export default function PostCapture() {
         />
       </section>
 
-      {/* Debug info - will be replaced with actual UI sections */}
-      <div style={{ marginTop: "1rem", fontSize: "12px", color: theme.textGhost }}>
-        <p>Marks: {marks.length}</p>
-        <p>Transcription state: {transcriptionState}</p>
-        <p>Selected tags: {selectedTags.map(t => t.name).join(", ")}</p>
-      </div>
+      {/* Tags Grid Section */}
+      <section
+        className="rounded-xl p-4 mb-4"
+        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+      >
+        <label
+          className="block text-xs font-medium mb-3 uppercase tracking-wide"
+          style={{ color: theme.textMuted }}
+        >
+          Tags
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {DEFAULT_TAGS.map((tag) => (
+            <TagChip
+              key={tag.id}
+              tag={tag}
+              selected={selectedTags.some(t => t.id === tag.id)}
+              onToggle={handleTagToggle}
+            />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
