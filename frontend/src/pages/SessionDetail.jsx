@@ -181,6 +181,9 @@ export default function SessionDetail() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
 
+  // State for notes
+  const [newNote, setNewNote] = useState("");
+
   // Auto-focus input when entering edit mode
   useEffect(() => {
     if (isEditingTitle && titleInputRef.current) {
@@ -240,6 +243,44 @@ export default function SessionDetail() {
   // Audio player handlers (UI only)
   const handlePlayPause = () => {
     setIsPlaying(!isPlaying);
+  };
+
+  // Note handlers
+  const handleAddNote = () => {
+    if (newNote.trim()) {
+      // In production, this would create a new note via API
+      setNewNote("");
+    }
+  };
+
+  // Format note timestamp
+  const formatNoteTime = (timestamp) => {
+    if (timestamp === null) return null;
+    return formatDuration(Math.floor(timestamp));
+  };
+
+  // Format note creation date
+  const formatNoteDate = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return "À l'instant";
+    if (diffMins < 60) return `Il y a ${diffMins}min`;
+    if (diffHours < 24) return `Il y a ${diffHours}h`;
+    if (diffDays === 1) return "Hier";
+    if (diffDays < 7) return `Il y a ${diffDays}j`;
+
+    // Format as DD/MM/YYYY HH:MM
+    const day = date.getDate().toString().padStart(2, "0");
+    const month = (date.getMonth() + 1).toString().padStart(2, "0");
+    const year = date.getFullYear();
+    const hours = date.getHours().toString().padStart(2, "0");
+    const mins = date.getMinutes().toString().padStart(2, "0");
+    return `${day}/${month}/${year} ${hours}:${mins}`;
   };
 
   // Format duration from seconds to MM:SS or HH:MM:SS
@@ -536,10 +577,115 @@ export default function SessionDetail() {
         </div>
       </section>
 
-      {/* Placeholder content */}
-      <p className="mt-6" style={{ color: theme.textSoft }}>
-        Rest of content coming soon...
-      </p>
+      {/* Notes Section */}
+      <section
+        className="rounded-xl p-4 mt-4 mb-8"
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
+      >
+        <label
+          className="block text-xs font-medium mb-3 uppercase tracking-wide"
+          style={{ color: theme.textSoft }}
+        >
+          Notes
+        </label>
+
+        {/* Existing notes list */}
+        {mockSession.notes && mockSession.notes.length > 0 && (
+          <div className="flex flex-col gap-3 mb-4">
+            {mockSession.notes.map((note) => (
+              <div
+                key={note.id}
+                className="flex flex-col gap-1 pb-3"
+                style={{
+                  borderBottom: `1px solid ${theme.cardBorder}`,
+                }}
+              >
+                {/* Note content */}
+                <p
+                  style={{
+                    fontFamily: FONTS.body,
+                    fontSize: "14px",
+                    fontWeight: 200,
+                    lineHeight: 1.6,
+                    color: theme.text,
+                    margin: 0,
+                  }}
+                >
+                  {note.content}
+                </p>
+
+                {/* Note metadata (timestamp + creation date) */}
+                <div
+                  className="flex items-center gap-2 mt-1"
+                  style={{
+                    fontFamily: FONTS.mono,
+                    fontSize: "10px",
+                    color: theme.textGhost,
+                  }}
+                >
+                  {formatNoteTime(note.timestamp) && (
+                    <>
+                      <button
+                        onClick={() => setCurrentTime(Math.floor(note.timestamp))}
+                        className="cursor-pointer hover:opacity-70 transition-opacity"
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          padding: 0,
+                          color: theme.textGhost,
+                          fontFamily: FONTS.mono,
+                          fontSize: "10px",
+                        }}
+                      >
+                        {formatNoteTime(note.timestamp)}
+                      </button>
+                      <span>•</span>
+                    </>
+                  )}
+                  <span>{formatNoteDate(note.createdAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* New note input */}
+        <div className="flex flex-col gap-3">
+          <textarea
+            value={newNote}
+            onChange={(e) => setNewNote(e.target.value)}
+            placeholder="Ajouter une note..."
+            className="w-full bg-transparent border-none outline-none resize-none"
+            style={{
+              fontFamily: FONTS.body,
+              fontSize: "14px",
+              fontWeight: 200,
+              lineHeight: 1.6,
+              color: theme.text,
+              minHeight: "60px",
+            }}
+          />
+
+          {/* Add note button */}
+          {newNote.trim() && (
+            <button
+              onClick={handleAddNote}
+              className="self-end px-4 py-2 rounded-lg transition-opacity hover:opacity-80"
+              style={{
+                background: theme.accent,
+                color: theme.bg,
+                border: "none",
+                cursor: "pointer",
+                fontFamily: FONTS.body,
+                fontSize: "12px",
+                fontWeight: 500,
+              }}
+            >
+              Ajouter
+            </button>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
