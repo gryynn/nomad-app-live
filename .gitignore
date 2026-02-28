@@ -10,7 +10,7 @@ __pycache__/
 *.sqlite3
 .claude/
 
-# Auto Claude generated files
+# Auto Claude
 .auto-claude/
 .auto-claude-security.json
 .auto-claude-status
