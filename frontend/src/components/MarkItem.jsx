@@ -1,4 +1,5 @@
 import { useTheme } from "../hooks/useTheme.jsx";
+import { FONTS } from "../styles/themes.js";
 
 /**
  * MarkItem - Displays a recording mark with timestamp and label
@@ -19,13 +20,13 @@ export default function MarkItem({ timestamp, label }) {
 
   return (
     <div className="flex items-center gap-3 py-2">
-      {/* Timestamp - JetBrains Mono, opacity 0.5 */}
+      {/* Timestamp - JetBrains Mono, opacity 0.4 */}
       <span
         className="font-mono text-sm"
         style={{
           color: theme.text,
-          opacity: 0.5,
-          fontFamily: "JetBrains Mono, monospace",
+          opacity: 0.4,
+          fontFamily: FONTS.mono,
         }}
       >
         {formatTimestamp(timestamp)}

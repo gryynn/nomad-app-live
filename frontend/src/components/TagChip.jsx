@@ -9,7 +9,7 @@ export default function TagChip({ tag, selected, onToggle, size = "md" }) {
         background: selected ? tag.color + "22" : "transparent",
         border: `1px solid ${selected ? tag.color : tag.color + "44"}`,
         color: tag.color,
-        opacity: selected ? 1 : 0.7,
+        opacity: selected ? 1 : 0.65,
       }}
     >
       <span>{tag.emoji}</span>

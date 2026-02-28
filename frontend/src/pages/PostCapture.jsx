@@ -131,11 +131,11 @@ export default function PostCapture() {
       {/* Title Input Section */}
       <section
         className="rounded-xl p-4 mb-4"
-        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
       >
         <label
           className="block text-xs font-medium mb-2 uppercase tracking-wide"
-          style={{ color: theme.textMuted }}
+          style={{ color: theme.textSoft }}
         >
           Titre
         </label>
@@ -152,11 +152,11 @@ export default function PostCapture() {
       {/* Tags Grid Section */}
       <section
         className="rounded-xl p-4 mb-4"
-        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
       >
         <label
           className="block text-xs font-medium mb-3 uppercase tracking-wide"
-          style={{ color: theme.textMuted }}
+          style={{ color: theme.textSoft }}
         >
           Tags
         </label>
@@ -176,11 +176,11 @@ export default function PostCapture() {
       {validMarks.length > 0 && (
         <section
           className="rounded-xl p-4 mb-4"
-          style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+          style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
         >
           <label
             className="block text-xs font-medium mb-3 uppercase tracking-wide"
-            style={{ color: theme.textMuted }}
+            style={{ color: theme.textSoft }}
           >
             Marques
           </label>
@@ -200,7 +200,7 @@ export default function PostCapture() {
       {transcriptionState === "live" && (
         <section
           className="rounded-xl p-4 mb-4"
-          style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+          style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
         >
           <div className="flex items-center gap-2 mb-3">
             <span style={{ color: theme.green, fontSize: "0.875rem", fontWeight: 500 }}>
@@ -233,11 +233,11 @@ export default function PostCapture() {
       {transcriptionState === "idle" && (
         <section
           className="rounded-xl p-4 mb-4"
-          style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+          style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
         >
           <label
             className="block text-xs font-medium mb-3 uppercase tracking-wide"
-            style={{ color: theme.textMuted }}
+            style={{ color: theme.textSoft }}
           >
             Transcription
           </label>
@@ -279,11 +279,11 @@ export default function PostCapture() {
       {transcriptionState === "processing" && (
         <section
           className="rounded-xl p-4 mb-4"
-          style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+          style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
         >
           <label
             className="block text-xs font-medium mb-3 uppercase tracking-wide"
-            style={{ color: theme.textMuted }}
+            style={{ color: theme.textSoft }}
           >
             Transcription
           </label>
@@ -347,20 +347,20 @@ export default function PostCapture() {
       {transcriptionState === "complete" && (
         <section
           className="rounded-xl p-4 mb-4"
-          style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+          style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
         >
           {/* Header with status, engine, and word count */}
           <div className="flex items-center gap-2 mb-3">
             <span style={{ color: theme.green, fontSize: "0.875rem", fontWeight: 500 }}>
               ✓ Terminé
             </span>
-            <span style={{ color: theme.textMuted, fontSize: "0.875rem" }}>·</span>
+            <span style={{ color: theme.textSoft, fontSize: "0.875rem" }}>·</span>
             <span style={{ color: theme.textSoft, fontSize: "0.875rem" }}>
               {selectedEngine === "whisper" ? "Groq Whisper" :
                selectedEngine === "deepgram" ? "Deepgram Nova-3" :
                "WhisperX"}
             </span>
-            <span style={{ color: theme.textMuted, fontSize: "0.875rem" }}>·</span>
+            <span style={{ color: theme.textSoft, fontSize: "0.875rem" }}>·</span>
             <span style={{ color: theme.textSoft, fontSize: "0.875rem" }}>
               {transcriptionText ? transcriptionText.split(/\s+/).filter(word => word.length > 0).length : 0} mots
             </span>
@@ -418,11 +418,11 @@ export default function PostCapture() {
       {/* Notes Section */}
       <section
         className="rounded-xl p-4 mb-4"
-        style={{ background: theme.card, border: `1px solid ${theme.cardBorder}` }}
+        style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
       >
         <label
           className="block text-xs font-medium mb-2 uppercase tracking-wide"
-          style={{ color: theme.textMuted }}
+          style={{ color: theme.textSoft }}
         >
           Notes
         </label>
@@ -454,7 +454,7 @@ export default function PostCapture() {
         <button
           className="rounded-xl p-4"
           style={{
-            background: theme.card,
+            background: theme.cardBg,
             border: `1px solid ${theme.cardBorder}`,
             color: theme.red
           }}
