@@ -38,3 +38,15 @@ export const THEMES = {
     cardBorder: "rgba(0,0,0,0.04)",
   },
 };
+
+export const FONTS = {
+  body: "'Outfit', system-ui, sans-serif",
+  mono: "'JetBrains Mono', monospace",
+  weights: {
+    thin: 200,
+    light: 300,
+    regular: 400,
+    medium: 500,
+    semi: 600
+  }
+};
