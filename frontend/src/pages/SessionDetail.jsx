@@ -425,6 +425,92 @@ export default function SessionDetail() {
         </div>
       </section>
 
+      {/* Transcription Section */}
+      {mockSession.segments && mockSession.segments.length > 0 ? (
+        <section
+          className="rounded-xl p-4 mt-4"
+          style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
+        >
+          <label
+            className="block text-xs font-medium mb-4 uppercase tracking-wide"
+            style={{ color: theme.textSoft }}
+          >
+            Transcription
+          </label>
+
+          {/* Transcript segments */}
+          <div className="flex flex-col gap-4">
+            {mockSession.segments.map((segment) => (
+              <div key={segment.id} className="flex gap-3">
+                {/* Clickable timestamp */}
+                <button
+                  onClick={() => setCurrentTime(Math.floor(segment.start))}
+                  className="flex-shrink-0 cursor-pointer hover:opacity-70 transition-opacity"
+                  style={{
+                    fontFamily: FONTS.mono,
+                    fontSize: "10px",
+                    color: theme.textGhost,
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    textAlign: "left",
+                  }}
+                >
+                  {formatDuration(Math.floor(segment.start))}
+                </button>
+
+                {/* Segment text */}
+                <p
+                  style={{
+                    fontFamily: FONTS.body,
+                    fontSize: "14px",
+                    fontWeight: 200,
+                    lineHeight: 1.8,
+                    color: theme.text,
+                    margin: 0,
+                  }}
+                >
+                  {segment.text}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : (
+        /* Fallback: No transcript available */
+        <section
+          className="rounded-xl p-4 mt-4"
+          style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
+        >
+          <div className="flex flex-col items-center justify-center gap-4 py-6">
+            <p
+              style={{
+                fontFamily: FONTS.body,
+                fontSize: "14px",
+                color: theme.textSoft,
+                textAlign: "center",
+              }}
+            >
+              Aucune transcription disponible
+            </p>
+            <button
+              className="px-6 py-3 rounded-lg transition-opacity hover:opacity-80"
+              style={{
+                background: theme.accent,
+                color: theme.bg,
+                border: "none",
+                cursor: "pointer",
+                fontFamily: FONTS.body,
+                fontSize: "14px",
+                fontWeight: 500,
+              }}
+            >
+              Transcrire
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* Placeholder content */}
       <p className="mt-6" style={{ color: theme.textSoft }}>
         Rest of content coming soon...
