@@ -1,0 +1,25 @@
+{
+  "active": true,
+  "spec": "003-backend-implement-sessions-and-tags-rest-api-route",
+  "state": "building",
+  "subtasks": {
+    "completed": 6,
+    "total": 10,
+    "in_progress": 1,
+    "failed": 0
+  },
+  "phase": {
+    "current": "Tags Router Implementation",
+    "id": null,
+    "total": 3
+  },
+  "workers": {
+    "active": 0,
+    "max": 1
+  },
+  "session": {
+    "number": 7,
+    "started_at": "2026-02-28T01:50:34.958844"
+  },
+  "last_update": "2026-02-28T02:08:53.798115"
+}

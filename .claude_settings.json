@@ -1,0 +1,39 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(./**)",
+      "Write(./**)",
+      "Edit(./**)",
+      "Glob(./**)",
+      "Grep(./**)",
+      "Read(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\003-backend-implement-sessions-and-tags-rest-api-route/**)",
+      "Write(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\003-backend-implement-sessions-and-tags-rest-api-route/**)",
+      "Edit(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\003-backend-implement-sessions-and-tags-rest-api-route/**)",
+      "Glob(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\003-backend-implement-sessions-and-tags-rest-api-route/**)",
+      "Grep(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\003-backend-implement-sessions-and-tags-rest-api-route/**)",
+      "Read(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\003-backend-implement-sessions-and-tags-rest-api-route\\.auto-claude\\specs\\003-backend-implement-sessions-and-tags-rest-api-route/**)",
+      "Write(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\003-backend-implement-sessions-and-tags-rest-api-route\\.auto-claude\\specs\\003-backend-implement-sessions-and-tags-rest-api-route/**)",
+      "Edit(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude\\worktrees\\tasks\\003-backend-implement-sessions-and-tags-rest-api-route\\.auto-claude\\specs\\003-backend-implement-sessions-and-tags-rest-api-route/**)",
+      "Read(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude/**)",
+      "Write(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude/**)",
+      "Edit(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude/**)",
+      "Glob(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude/**)",
+      "Grep(C:\\Users\\marti\\Downloads\\Codes\\nomad-app-live\\.auto-claude/**)",
+      "Bash(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "mcp__context7__resolve-library-id(*)",
+      "mcp__context7__query-docs(*)",
+      "mcp__graphiti-memory__search_nodes(*)",
+      "mcp__graphiti-memory__search_facts(*)",
+      "mcp__graphiti-memory__add_episode(*)",
+      "mcp__graphiti-memory__get_episodes(*)",
+      "mcp__graphiti-memory__get_entity_edge(*)"
+    ]
+  }
+}
