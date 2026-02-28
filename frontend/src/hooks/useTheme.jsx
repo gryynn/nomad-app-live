@@ -1,26 +1,26 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { THEMES } from "../styles/themes.js";
 
 const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
   const [mode, setMode] = useState(() => {
-    return localStorage.getItem("nomad-theme") || "oled";
+    return localStorage.getItem("nomad-theme") || "dark";
   });
-
-  const theme = THEMES[mode];
 
   useEffect(() => {
     localStorage.setItem("nomad-theme", mode);
-    document.documentElement.style.backgroundColor = theme.bg;
-    document.body.style.backgroundColor = theme.bg;
-    document.body.style.color = theme.text;
-  }, [mode, theme]);
+    const root = document.documentElement;
+    if (mode === "light") {
+      root.classList.add("light");
+    } else {
+      root.classList.remove("light");
+    }
+  }, [mode]);
 
-  const toggle = () => setMode((m) => (m === "oled" ? "light" : "oled"));
+  const toggle = () => setMode((m) => (m === "dark" ? "light" : "dark"));
 
   return (
-    <ThemeContext.Provider value={{ mode, theme, toggle }}>
+    <ThemeContext.Provider value={{ mode, toggle }}>
       {children}
     </ThemeContext.Provider>
   );

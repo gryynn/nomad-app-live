@@ -1,24 +1,29 @@
 import { Routes, Route } from "react-router-dom";
-import { ThemeProvider } from "./hooks/useTheme.jsx";
-import Home from "./pages/Home.jsx";
-import Recording from "./pages/Recording.jsx";
-import PostCapture from "./pages/PostCapture.jsx";
-import Sessions from "./pages/Sessions.jsx";
-import SessionDetail from "./pages/SessionDetail.jsx";
-import Settings from "./pages/Settings.jsx";
+import { ThemeProvider } from "@/hooks/useTheme";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
+import AppLayout from "@/components/AppLayout";
+import Dashboard from "@/pages/Dashboard";
+import Sessions from "@/pages/Sessions";
+import TagsPage from "@/pages/TagsPage";
+import SettingsPage from "@/pages/SettingsPage";
+import CapturePage from "@/pages/CapturePage";
 
 export default function App() {
   return (
     <ThemeProvider>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/record" element={<Recording />} />
-        <Route path="/post-capture" element={<PostCapture />} />
-        <Route path="/post-capture/:id" element={<PostCapture />} />
-        <Route path="/sessions" element={<Sessions />} />
-        <Route path="/sessions/:id" element={<SessionDetail />} />
-        <Route path="/settings" element={<Settings />} />
-      </Routes>
+      <TooltipProvider>
+        <Routes>
+          <Route element={<AppLayout />}>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/sessions" element={<Sessions />} />
+            <Route path="/tags" element={<TagsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/capture" element={<CapturePage />} />
+          </Route>
+        </Routes>
+        <Toaster />
+      </TooltipProvider>
     </ThemeProvider>
   );
 }

@@ -1,192 +1,323 @@
-import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { useTheme } from "../hooks/useTheme.jsx";
-import { DEFAULT_TAGS, FONTS } from "../styles/themes.js";
-import SessionCard from "../components/SessionCard.jsx";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
+import {
+  Search,
+  LayoutList,
+  Columns3,
+  MoreHorizontal,
+  RefreshCw,
+  Trash2,
+  Tags,
+  Filter,
+} from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { getSessions, getTags } from "@/lib/api";
+import { cn, formatDuration, formatDateTime, STATUS_CONFIG } from "@/lib/utils";
 
 export default function Sessions() {
-  const { theme } = useTheme();
-  const navigate = useNavigate();
-
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTags, setSelectedTags] = useState([]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [sessions, setSessions] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState(searchParams.get("tag") || "all");
+  const [viewMode, setViewMode] = useState("table"); // table | kanban
 
-  // Mock session data
-  const mockSessions = [
-    { id: "sess-001", title: "Team standup insights", status: "done", tagId: "1", duration: 1847, date: "2026-02-28T09:30:00Z", transcriptLength: 2847 },
-    { id: "sess-002", title: "Client call follow-up notes", status: "pending", tagId: "2", duration: 3421, date: "2026-02-27T14:20:00Z", transcriptLength: 0 },
-    { id: "sess-003", title: "Podcast episode rough cut", status: "done", tagId: "3", duration: 5234, date: "2026-02-26T11:00:00Z", transcriptLength: 8942 },
-    { id: "sess-004", title: "Quick memo after meeting", status: "done", tagId: "4", duration: 421, date: "2026-02-28T16:45:00Z", transcriptLength: 734 },
-    { id: "sess-005", title: "Music sample ideas", status: "error", tagId: "5", duration: 1234, date: "2026-02-25T19:30:00Z", transcriptLength: 0 },
-    { id: "sess-006", title: "Synth pad recording session", status: "pending", tagId: "6", duration: 2847, date: "2026-02-24T22:15:00Z", transcriptLength: 0 },
-    { id: "sess-007", title: "Weekly work review thoughts", status: "done", tagId: "7", duration: 1653, date: "2026-02-23T18:00:00Z", transcriptLength: 2941 },
-    { id: "sess-008", title: "Brainstorming new product feature", status: "done", tagId: "8", duration: 2199, date: "2026-02-27T10:30:00Z", transcriptLength: 3847 },
-    { id: "sess-009", title: "Learning React patterns deep dive", status: "pending", tagId: "9", duration: 4821, date: "2026-02-22T15:45:00Z", transcriptLength: 0 },
-    { id: "sess-010", title: "Personal reflection on goals", status: "done", tagId: "10", duration: 1024, date: "2026-02-21T20:00:00Z", transcriptLength: 1847 },
-  ];
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  const toggleTag = (tagId) => {
-    setSelectedTags(prev =>
-      prev.includes(tagId)
-        ? prev.filter(id => id !== tagId)
-        : [...prev, tagId]
+  async function loadData() {
+    setLoading(true);
+    try {
+      const [sessData, tagData] = await Promise.all([
+        getSessions({ order: "created_at.desc", limit: 200 }),
+        getTags(),
+      ]);
+      setSessions(Array.isArray(sessData) ? sessData : sessData.data || []);
+      setTags(Array.isArray(tagData) ? tagData : tagData.data || []);
+    } catch (err) {
+      console.error("Sessions load error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const filtered = sessions.filter((s) => {
+    if (statusFilter !== "all" && s.status !== statusFilter) return false;
+    if (tagFilter !== "all" && !s.tags?.some((t) => t.id === tagFilter)) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return (
+        (s.title || "").toLowerCase().includes(q) ||
+        (s.transcript || "").toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  const kanbanColumns = ["pending", "recording", "processing", "done", "error"];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
     );
-  };
-
-  // Combined filtering logic with useMemo
-  const filteredSessions = useMemo(() => {
-    return mockSessions.filter((session) => {
-      // Search filter (title, case-insensitive)
-      const matchesSearch = searchQuery.trim() === "" ||
-        session.title.toLowerCase().includes(searchQuery.toLowerCase());
-
-      // Tag filter (OR logic - match ANY selected tag)
-      const matchesTags = selectedTags.length === 0 ||
-        selectedTags.includes(session.tagId);
-
-      // Status filter
-      const matchesStatus = statusFilter === "all" ||
-        session.status === statusFilter;
-
-      // Combined (AND logic)
-      return matchesSearch && matchesTags && matchesStatus;
-    });
-  }, [searchQuery, selectedTags, statusFilter]);
+  }
 
   return (
-    <div
-      style={{ background: theme.bg, color: theme.text, minHeight: "100vh" }}
-      className="flex flex-col px-4 py-6 max-w-lg mx-auto"
-    >
+    <div className="space-y-4">
       {/* Header */}
-      <header className="flex items-center gap-3 mb-6">
-        <button
-          onClick={() => navigate("/")}
-          className="text-xl"
-          style={{ color: theme.text }}
-        >
-          ←
-        </button>
-        <h1
-          className="text-xs"
-          style={{
-            fontFamily: FONTS.mono,
-            fontWeight: 400,
-            color: theme.textSoft,
-          }}
-        >
-          Sessions
-        </h1>
-      </header>
-
-      {/* Search Input */}
-      <div className="mb-4">
-        <input
-          type="text"
-          placeholder="Rechercher..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full rounded-xl px-4 py-3 outline-none"
-          style={{
-            background: theme.cardBg,
-            border: `1px solid ${theme.cardBorder}`,
-            color: theme.text,
-          }}
-        />
-      </div>
-
-      {/* Tag Filter Chips */}
-      <div className="mb-4">
-        <div className="flex flex-wrap gap-2">
-          {DEFAULT_TAGS.map((tag) => {
-            const isSelected = selectedTags.includes(tag.id);
-            return (
-              <button
-                key={tag.id}
-                onClick={() => toggleTag(tag.id)}
-                className="rounded-full px-3 py-1.5 text-sm font-medium transition-all"
-                style={{
-                  background: isSelected ? theme.accentMid : theme.cardBg,
-                  border: `1px solid ${isSelected ? theme.accent : theme.cardBorder}`,
-                  color: isSelected ? theme.accent : theme.textSoft,
-                }}
-              >
-                {tag.emoji} {tag.name}
-              </button>
-            );
-          })}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Sessions</h1>
+          <p className="text-sm text-muted-foreground">
+            {filtered.length} session{filtered.length !== 1 ? "s" : ""}
+          </p>
         </div>
-      </div>
-
-      {/* Status Filter Buttons */}
-      <div className="mb-4">
-        <div className="flex gap-2">
-          {[
-            { id: "all", label: "All" },
-            { id: "pending", label: "Pending" },
-            { id: "done", label: "Done" },
-          ].map((status) => {
-            const isActive = statusFilter === status.id;
-            return (
-              <button
-                key={status.id}
-                onClick={() => setStatusFilter(status.id)}
-                className="flex-1 rounded-xl px-4 py-2 text-sm font-medium transition-all"
-                style={{
-                  background: isActive ? theme.accentMid : theme.cardBg,
-                  border: `1px solid ${isActive ? theme.accent : theme.cardBorder}`,
-                  color: isActive ? theme.accent : theme.textSoft,
-                }}
-              >
-                {status.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Stats Bar */}
-      <div
-        className="rounded-xl px-4 py-3 mb-4"
-        style={{
-          background: theme.cardBg,
-          border: `1px solid ${theme.cardBorder}`,
-        }}
-      >
-        <p
-          className="text-sm"
-          style={{
-            fontFamily: FONTS.mono,
-            color: theme.textSoft
-          }}
-        >
-          247 sessions · 0 transcrites · ~48h
-        </p>
-      </div>
-
-      {/* Sessions List */}
-      <div className="flex flex-col gap-3">
-        {filteredSessions.length === 0 ? (
-          <div
-            className="rounded-xl px-4 py-8 text-center"
-            style={{
-              background: theme.cardBg,
-              border: `1px solid ${theme.cardBorder}`,
-            }}
+        <div className="flex items-center gap-1">
+          <Button
+            variant={viewMode === "table" ? "secondary" : "ghost"}
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setViewMode("table")}
           >
-            <p style={{ color: theme.textSoft }}>Aucune session trouvée</p>
-          </div>
-        ) : (
-          filteredSessions.map((session) => (
-            <SessionCard
-              key={session.id}
-              session={session}
-              onClick={(id) => navigate(`/sessions/${id}`)}
-            />
-          ))
+            <LayoutList className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={viewMode === "kanban" ? "secondary" : "ghost"}
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setViewMode("kanban")}
+          >
+            <Columns3 className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Rechercher..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 h-8"
+          />
+        </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="h-8 w-[130px]">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les status</SelectItem>
+            {Object.entries(STATUS_CONFIG).map(([key, { label }]) => (
+              <SelectItem key={key} value={key}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {tags.length > 0 && (
+          <Select value={tagFilter} onValueChange={setTagFilter}>
+            <SelectTrigger className="h-8 w-[150px]">
+              <SelectValue placeholder="Tags" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les tags</SelectItem>
+              {tags.map((tag) => (
+                <SelectItem key={tag.id} value={tag.id}>
+                  {tag.emoji} {tag.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
       </div>
+
+      {/* Content */}
+      {viewMode === "table" ? (
+        <Card className="border-border/50">
+          <div className="overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[40%]">Titre</TableHead>
+                  <TableHead>Tags</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Durée</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                      Aucune session trouvée
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filtered.map((session) => {
+                    const statusCfg = STATUS_CONFIG[session.status] || STATUS_CONFIG.pending;
+                    return (
+                      <TableRow
+                        key={session.id}
+                        className="cursor-pointer"
+                        onClick={() => setSearchParams({ detail: session.id })}
+                      >
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-medium">
+                              {session.title || "Sans titre"}
+                            </span>
+                            {session.input_mode && (
+                              <span className="font-mono text-[10px] text-muted-foreground uppercase">
+                                {session.input_mode}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            {session.tags?.map((tag) => (
+                              <span
+                                key={tag.id}
+                                className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px]"
+                                style={{
+                                  backgroundColor: tag.hue ? `${tag.hue}20` : undefined,
+                                  color: tag.hue || undefined,
+                                }}
+                              >
+                                {tag.emoji} {tag.name}
+                              </span>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className={cn("text-[10px]", statusCfg.color)}>
+                            {statusCfg.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {formatDuration(session.duration_seconds)}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {formatDateTime(session.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem>
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                                Re-transcrire
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>
+                                <Tags className="mr-2 h-4 w-4" />
+                                Gérer tags
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive">
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Supprimer
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      ) : (
+        /* Kanban View */
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          {kanbanColumns.map((status) => {
+            const statusCfg = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
+            const columnSessions = filtered.filter((s) => s.status === status);
+            return (
+              <div key={status} className="space-y-2">
+                <div className="flex items-center gap-2 px-1">
+                  <Badge variant="secondary" className={cn("text-[10px]", statusCfg.color)}>
+                    {statusCfg.label}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {columnSessions.length}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {columnSessions.map((session) => (
+                    <Card
+                      key={session.id}
+                      className="border-border/50 cursor-pointer hover:border-primary/30 transition-colors"
+                      onClick={() => setSearchParams({ detail: session.id })}
+                    >
+                      <CardContent className="p-3">
+                        <p className="text-sm font-medium truncate">
+                          {session.title || "Sans titre"}
+                        </p>
+                        <div className="mt-1 flex items-center gap-1.5">
+                          {session.tags?.map((tag) => (
+                            <span key={tag.id} className="text-xs">{tag.emoji}</span>
+                          ))}
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+                          <span>{formatDuration(session.duration_seconds)}</span>
+                          <span>{formatDateTime(session.created_at)}</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                  {columnSessions.length === 0 && (
+                    <div className="rounded-md border border-dashed border-border/50 py-8 text-center text-xs text-muted-foreground">
+                      Vide
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
