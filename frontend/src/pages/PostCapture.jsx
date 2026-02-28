@@ -161,6 +161,45 @@ export default function PostCapture() {
           style={{ color: theme.text }}
         />
       </section>
+
+      {/* Action Buttons Section */}
+      <section className="flex items-center justify-between gap-3 mb-4">
+        {/* Save Button - Primary Action */}
+        <button
+          className="flex-1 rounded-xl p-4 text-center font-medium"
+          style={{
+            background: theme.accent,
+            color: theme.bg,
+            border: "none"
+          }}
+        >
+          Enregistrer
+        </button>
+
+        {/* Delete Button - Icon */}
+        <button
+          className="rounded-xl p-4"
+          style={{
+            background: theme.card,
+            border: `1px solid ${theme.cardBorder}`,
+            color: theme.red
+          }}
+        >
+          🗑️
+        </button>
+
+        {/* Skip Button - Ghost Style */}
+        <button
+          className="rounded-xl p-4"
+          style={{
+            background: "transparent",
+            border: "none",
+            color: theme.textGhost
+          }}
+        >
+          Passer
+        </button>
+      </section>
     </div>
   );
 }
