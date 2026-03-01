@@ -15,6 +15,7 @@ class SessionCreate(BaseModel):
     language: str = "fr"
     engine_used: Optional[str] = None
     offline_created: bool = False
+    transcript: Optional[str] = None
 
 
 class SessionUpdate(BaseModel):

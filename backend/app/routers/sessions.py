@@ -1,4 +1,5 @@
 import httpx
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, List
 from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
@@ -26,7 +27,7 @@ BASE_URL = f"{SUPABASE_URL}/rest/v1"
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-@router.post("/", response_model=SessionResponse, status_code=201)
+@router.post("", response_model=SessionResponse, status_code=201)
 async def create_session(session: SessionCreate):
     """Create a new recording session"""
     try:
@@ -53,6 +54,10 @@ async def create_session(session: SessionCreate):
             session_data["engine_used"] = session.engine_used
         if session.offline_created:
             session_data["offline_created"] = True
+        if session.transcript is not None:
+            session_data["transcript"] = session.transcript
+            session_data["transcript_words"] = len(session.transcript.split())
+            session_data["status"] = "transcribed"
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -68,12 +73,14 @@ async def create_session(session: SessionCreate):
 
             return created_session
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail="Failed to create session")
+        print(f"Supabase error: {e.response.status_code} {e.response.text}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to create session: {e.response.text}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error")
+        print(f"Create session error: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.get("/", response_model=List[SessionResponse])
+@router.get("", response_model=List[SessionResponse])
 async def list_sessions(
     status: Optional[str] = None,
     tag: Optional[str] = None,
@@ -218,27 +225,28 @@ async def update_session(session_id: str, session_update: SessionUpdate):
 
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(session_id: str):
-    """Soft-delete a session (set deleted_at)"""
+    """Delete a session (hard delete for MVP)"""
     try:
         async with httpx.AsyncClient() as client:
-            # Check if session exists
-            check_response = await client.get(
-                f"{BASE_URL}/sessions",
+            # Delete session_tags first (junction table)
+            await client.delete(
+                f"{BASE_URL}/session_tags",
                 headers=HEADERS,
-                params={"id": f"eq.{session_id}", "select": "id"},
+                params={"session_id": f"eq.{session_id}"},
             )
-            check_response.raise_for_status()
-            sessions = check_response.json()
 
-            if not sessions or len(sessions) == 0:
-                raise HTTPException(status_code=404, detail="Session not found")
+            # Delete notes
+            await client.delete(
+                f"{BASE_URL}/notes",
+                headers=HEADERS,
+                params={"session_id": f"eq.{session_id}"},
+            )
 
-            # Soft delete: set deleted_at timestamp
-            response = await client.patch(
+            # Delete session
+            response = await client.delete(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={"id": f"eq.{session_id}"},
-                json={"deleted_at": "now()"},
             )
             response.raise_for_status()
 
@@ -246,13 +254,15 @@ async def delete_session(session_id: str):
     except HTTPException:
         raise
     except httpx.HTTPStatusError as e:
+        print(f"Delete error: {e.response.status_code} {e.response.text}")
         if e.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Session not found")
-        raise HTTPException(status_code=e.response.status_code, detail="Failed to delete session")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to delete session: {e.response.text}")
     except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="Database connection failed")
-    except Exception:
-        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as e:
+        print(f"Delete exception: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 @router.post("/{session_id}/marks", status_code=201)

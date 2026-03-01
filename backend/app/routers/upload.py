@@ -21,7 +21,7 @@ HEADERS = {
 BASE_URL = f"{SUPABASE_URL}/rest/v1"
 
 
-@router.post("/")
+@router.post("")
 async def upload_audio(file: UploadFile = File(...)):
     """
     Upload audio file to Supabase Storage and create session record.

@@ -25,7 +25,7 @@ BASE_URL = f"{SUPABASE_URL}/rest/v1"
 router = APIRouter(prefix="/tags", tags=["tags"])
 
 
-@router.get("/", response_model=List[TagResponse])
+@router.get("", response_model=List[TagResponse])
 async def list_tags(
     parent_id: Optional[str] = None,
     limit: int = Query(100, ge=1, le=500),
@@ -89,7 +89,7 @@ async def list_tags(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("/", response_model=TagResponse, status_code=201)
+@router.post("", response_model=TagResponse, status_code=201)
 async def create_tag(tag: TagCreate):
     """Create a new tag"""
     try:
@@ -287,27 +287,22 @@ async def associate_tags_with_session(session_id: str, tag_assoc: TagAssociation
             if not sessions or len(sessions) == 0:
                 raise HTTPException(status_code=404, detail="Session not found")
 
-            # Insert tag associations into junction table
-            # Create association records for each tag
-            for tag_id in tag_assoc.tag_ids:
-                association_data = {
-                    "session_id": session_id,
-                    "tag_id": tag_id,
-                }
+            # Sync: delete all existing associations, then insert new ones
+            await client.delete(
+                f"{BASE_URL}/session_tags",
+                headers=HEADERS,
+                params={"session_id": f"eq.{session_id}"},
+            )
 
-                try:
-                    assoc_response = await client.post(
-                        f"{BASE_URL}/session_tags",
-                        headers=HEADERS,
-                        json=association_data,
-                    )
-                    # Ignore conflicts (tag already associated)
-                    if assoc_response.status_code not in [200, 201, 409]:
-                        assoc_response.raise_for_status()
-                except httpx.HTTPStatusError as e:
-                    # Ignore 409 conflicts (duplicate associations)
-                    if e.response.status_code != 409:
-                        raise
+            for tag_id in tag_assoc.tag_ids:
+                assoc_response = await client.post(
+                    f"{BASE_URL}/session_tags",
+                    headers=HEADERS,
+                    json={"session_id": session_id, "tag_id": tag_id},
+                )
+                if assoc_response.status_code not in [200, 201, 409]:
+                    print(f"Tag assoc error: {assoc_response.status_code} {assoc_response.text}")
+                    assoc_response.raise_for_status()
 
             # Fetch and return the updated session with embedded tags
             session_detail_response = await client.get(

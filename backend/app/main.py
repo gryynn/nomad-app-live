@@ -6,6 +6,7 @@ app = FastAPI(
     title="NOMAD API",
     description="Universal audio capture & transcription backend",
     version="0.1.0",
+    redirect_slashes=False,
 )
 
 app.add_middleware(
