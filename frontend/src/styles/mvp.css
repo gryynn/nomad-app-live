@@ -7,7 +7,7 @@
   --surface2: #1a1a1a;
   --text: #d0d0d0;
   --text-soft: #777;
-  --accent: #C8FF00;
+  --accent: #ffffff;
   --red: #ff4444;
   --green: #44cc66;
   --orange: #ffaa33;
@@ -94,7 +94,7 @@ html, body {
 .mode-btn.active {
   border-color: var(--accent);
   color: var(--accent);
-  background: rgba(200, 255, 0, 0.05);
+  background: rgba(255, 255, 255, 0.05);
 }
 .mode-btn.rec.active {
   border-color: var(--red);
@@ -262,7 +262,7 @@ label {
 }
 .status.pending { background: rgba(255,170,51,0.15); color: var(--orange); }
 .status.transcribed, .status.done { background: rgba(68,204,102,0.15); color: var(--green); }
-.status.processing, .status.recording { background: rgba(200,255,0,0.15); color: var(--accent); }
+.status.processing, .status.recording { background: rgba(255,255,255,0.1); color: var(--accent); }
 .status.error { background: rgba(255,68,68,0.15); color: var(--red); }
 .status.uploaded { background: rgba(100,150,255,0.15); color: #6496ff; }
 
@@ -311,7 +311,7 @@ label {
 .tag-chip:hover { border-color: #444; }
 .tag-chip.selected {
   border-color: var(--accent);
-  background: rgba(200, 255, 0, 0.08);
+  background: rgba(255, 255, 255, 0.06);
   color: var(--accent);
 }
 
@@ -332,7 +332,7 @@ label {
 }
 .engine-chip.selected {
   border-color: var(--accent);
-  background: rgba(200, 255, 0, 0.08);
+  background: rgba(255, 255, 255, 0.06);
   color: var(--accent);
 }
 .engine-chip.offline { opacity: 0.4; cursor: not-allowed; }
