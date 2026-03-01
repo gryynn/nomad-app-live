@@ -27,7 +27,7 @@ services:
       dockerfile: Dockerfile
     container_name: nomad-api
     restart: unless-stopped
-    env_file: .env
+    env_file: backend/.env
     networks:
       - traefik_proxy
     labels:
