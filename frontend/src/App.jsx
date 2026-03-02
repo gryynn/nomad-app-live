@@ -135,6 +135,10 @@ export default function App() {
   const [transcriptDirty, setTranscriptDirty] = useState(false);
   const [transcriptViewMode, setTranscriptViewMode] = useState("plain"); // plain | timestamps | speakers
   const audioPlayerRef = useRef(null);
+  const [playerPlaying, setPlayerPlaying] = useState(false);
+  const [playerTime, setPlayerTime] = useState(0);
+  const [playerDuration, setPlayerDuration] = useState(0);
+  const playerProgressRef = useRef(null);
 
   // Offline sync
   const offline = useOfflineSync();
@@ -679,6 +683,9 @@ export default function App() {
     setSessionNotesDirty(false);
     setTranscriptDirty(false);
     setTranscriptViewMode("plain");
+    setPlayerPlaying(false);
+    setPlayerTime(0);
+    setPlayerDuration(0);
     setSessionTagSuggestions([]);
     try {
       const detail = await api.getSession(id);
@@ -876,6 +883,38 @@ export default function App() {
     } catch (e) {
       setError(`Erreur: ${e.message}`);
     }
+  }
+
+  // ─── Audio player helpers ─────────────────────────
+  function formatPlayerTime(s) {
+    if (!s || isNaN(s)) return "0:00";
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  }
+
+  function togglePlayPause() {
+    const a = audioPlayerRef.current;
+    if (!a) return;
+    if (a.paused) { a.play(); setPlayerPlaying(true); }
+    else { a.pause(); setPlayerPlaying(false); }
+  }
+
+  function handlePlayerSeek(e) {
+    const a = audioPlayerRef.current;
+    if (!a || !playerDuration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX ?? e.touches?.[0]?.clientX) - rect.left;
+    const pct = Math.max(0, Math.min(1, x / rect.width));
+    a.currentTime = pct * playerDuration;
+    setPlayerTime(a.currentTime);
+  }
+
+  function skipPlayer(delta) {
+    const a = audioPlayerRef.current;
+    if (!a) return;
+    a.currentTime = Math.max(0, Math.min(playerDuration, a.currentTime + delta));
+    setPlayerTime(a.currentTime);
   }
 
   // ─── Filter helpers ────────────────────────────────
@@ -1422,14 +1461,27 @@ export default function App() {
                   <div className="session-detail">
                     {/* Audio Player */}
                     {s.audio_url && (
-                      <div className="audio-player-section">
+                      <div className="custom-player">
                         <audio
                           ref={audioPlayerRef}
                           src={s.audio_url}
-                          controls
                           preload="metadata"
-                          className="audio-player"
+                          onLoadedMetadata={(e) => setPlayerDuration(e.target.duration)}
+                          onTimeUpdate={(e) => setPlayerTime(e.target.currentTime)}
+                          onEnded={() => setPlayerPlaying(false)}
+                          onPlay={() => setPlayerPlaying(true)}
+                          onPause={() => setPlayerPlaying(false)}
                         />
+                        <button className="player-btn" onClick={togglePlayPause} title={playerPlaying ? "Pause" : "Play"}>
+                          {playerPlaying ? "❚❚" : "▶"}
+                        </button>
+                        <span className="player-time">{formatPlayerTime(playerTime)}</span>
+                        <div className="player-track" onClick={handlePlayerSeek} onTouchStart={handlePlayerSeek} ref={playerProgressRef}>
+                          <div className="player-progress" style={{ width: playerDuration ? `${(playerTime / playerDuration) * 100}%` : "0%" }} />
+                        </div>
+                        <span className="player-time">{formatPlayerTime(playerDuration)}</span>
+                        <button className="player-skip-btn" onClick={() => skipPlayer(-10)} title="-10s">-10</button>
+                        <button className="player-skip-btn" onClick={() => skipPlayer(30)} title="+30s">+30</button>
                       </div>
                     )}
 
