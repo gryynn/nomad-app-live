@@ -40,7 +40,18 @@ async def process_transcription(job_id: str, session_id: str, engine: str, audio
 
     except Exception as e:
         queue_manager.update_status(job_id, "failed")
-        print(f"Transcription job {job_id} failed: {str(e)}")
+        error_msg = str(e)
+        print(f"Transcription job {job_id} failed: {error_msg}")
+        # Store error message on the session
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.patch(
+                    f"{BASE_URL}/sessions?id=eq.{session_id}",
+                    headers=HEADERS,
+                    json={"status": "error", "error_message": error_msg},
+                )
+        except Exception:
+            pass  # Best-effort error storage
 
 
 @router.post("/{session_id}")

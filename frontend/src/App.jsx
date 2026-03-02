@@ -899,7 +899,21 @@ export default function App() {
 
   function handlePlayerDuration(e) {
     const d = e.target.duration;
-    if (d && isFinite(d)) setPlayerDuration(d);
+    if (d && isFinite(d) && d > 0) setPlayerDuration(d);
+  }
+
+  // Fallback: if browser can't get duration from metadata, try after canplay or use session duration
+  function ensurePlayerDuration(sessionDurationSec) {
+    const a = audioPlayerRef.current;
+    if (playerDuration && isFinite(playerDuration) && playerDuration > 0) return;
+    if (a && a.duration && isFinite(a.duration) && a.duration > 0) {
+      setPlayerDuration(a.duration);
+      return;
+    }
+    // Use session's stored duration as last resort
+    if (sessionDurationSec && sessionDurationSec > 0) {
+      setPlayerDuration(sessionDurationSec);
+    }
   }
 
   function togglePlayPause() {
@@ -942,8 +956,10 @@ export default function App() {
 
   function skipPlayer(delta) {
     const a = audioPlayerRef.current;
-    if (!a || !playerDuration || !isFinite(playerDuration)) return;
-    a.currentTime = Math.max(0, Math.min(playerDuration, a.currentTime + delta));
+    if (!a) return;
+    const dur = (a.duration && isFinite(a.duration)) ? a.duration : playerDuration;
+    const maxTime = (dur && isFinite(dur)) ? dur : a.currentTime + Math.abs(delta) + 60;
+    a.currentTime = Math.max(0, Math.min(maxTime, a.currentTime + delta));
     setPlayerTime(a.currentTime);
   }
 
@@ -1559,12 +1575,16 @@ export default function App() {
                         <audio
                           ref={audioPlayerRef}
                           src={s.audio_url}
-                          preload="metadata"
+                          preload="auto"
                           onLoadedMetadata={(e) => { handlePlayerDuration(e); if (!waveformDataRef.current) loadWaveform(s.audio_url); }}
                           onDurationChange={handlePlayerDuration}
+                          onCanPlay={(e) => { handlePlayerDuration(e); ensurePlayerDuration(s.duration_seconds); }}
                           onTimeUpdate={(e) => {
                             setPlayerTime(e.target.currentTime);
-                            if (!playerDuration || !isFinite(playerDuration)) handlePlayerDuration(e);
+                            if (!playerDuration || !isFinite(playerDuration)) {
+                              handlePlayerDuration(e);
+                              ensurePlayerDuration(s.duration_seconds);
+                            }
                           }}
                           onEnded={() => setPlayerPlaying(false)}
                           onPlay={() => setPlayerPlaying(true)}
