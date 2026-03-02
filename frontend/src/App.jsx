@@ -304,15 +304,8 @@ export default function App() {
     // captureMode: "rec" or "live"
     setError(null);
     try {
-      // Start speech recognition BEFORE getUserMedia to avoid mic conflicts
-      if (captureMode === "live") {
-        speech.start("fr-FR");
-        setLivePreviewText("");
-        setLiveEditText("");
-        lastSpeechLenRef.current = 0;
-      }
-
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log("[REC] getUserMedia OK, tracks:", stream.getAudioTracks().length);
 
       // Web Audio API for real-time visualizer
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -324,12 +317,22 @@ export default function App() {
       audioCtxRef.current = audioCtx;
       analyserRef.current = analyser;
 
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      // Check supported mimeType
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+        : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4"
+        : "";
+      console.log("[REC] MediaRecorder mimeType:", mimeType || "default");
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
       chunksRef.current = [];
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+          console.log("[REC] chunk:", e.data.size, "bytes, total chunks:", chunksRef.current.length);
+        }
       };
 
       recorder.onstop = () => {
@@ -340,16 +343,16 @@ export default function App() {
           setMode(null);
           return;
         }
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const blob = new Blob(chunksRef.current, { type: mimeType || "audio/webm" });
         const durationSec = Math.round((Date.now() - startTimeRef.current) / 1000);
-        console.log(`Recording stopped: ${blob.size} bytes, ${durationSec}s, mode=${captureMode}`);
-        // Defer upload — show review screen first
+        console.log(`[REC] stopped: ${blob.size} bytes, ${durationSec}s, mode=${captureMode}, chunks=${chunksRef.current.length}`);
         setPendingBlob(blob);
         setPendingDuration(durationSec);
         setShowReview(true);
       };
 
       recorder.start(1000);
+      console.log("[REC] MediaRecorder started, state:", recorder.state);
       setRecMode(captureMode);
       setIsRecording(true);
       setIsPaused(false);
@@ -365,7 +368,15 @@ export default function App() {
         setRecTime(Date.now() - startTimeRef.current);
       }, 100);
 
+      // Start speech recognition AFTER MediaRecorder for LIVE mode
+      if (captureMode === "live") {
+        speech.start("fr-FR");
+        setLivePreviewText("");
+        setLiveEditText("");
+        lastSpeechLenRef.current = 0;
+      }
     } catch (e) {
+      console.error("[REC] startRecording failed:", e);
       setError(`Micro non accessible: ${e.message}`);
     }
   }
@@ -521,13 +532,20 @@ export default function App() {
   }
 
   async function handleSaveReview(doTranscribe = false) {
-    if (!pendingBlob) return;
+    if (!pendingBlob) {
+      setError("Pas de données audio enregistrées");
+      return;
+    }
+    console.log("[SAVE] pendingBlob:", pendingBlob.size, "bytes, type:", pendingBlob.type);
     setReviewSaving(true);
     setError(null);
     try {
       // 1. Upload audio
-      const file = new File([pendingBlob], `${recMode}_${Date.now()}.webm`, { type: "audio/webm" });
+      const ext = pendingBlob.type.includes("mp4") ? "mp4" : "webm";
+      const file = new File([pendingBlob], `${recMode}_${Date.now()}.${ext}`, { type: pendingBlob.type });
+      console.log("[SAVE] uploading file:", file.name, file.size, "bytes");
       const result = await api.uploadAudio(file);
+      console.log("[SAVE] upload result:", result);
       const sessionId = result.session_id;
 
       // 2. Update session metadata
@@ -556,7 +574,9 @@ export default function App() {
 
       // 5. Optionally trigger transcription
       if (doTranscribe) {
-        await api.transcribe(sessionId, selectedEngine);
+        console.log("[SAVE] triggering transcription, engine:", selectedEngine);
+        const trResult = await api.transcribe(sessionId, selectedEngine);
+        console.log("[SAVE] transcribe result:", trResult);
         setSuccess("Session sauvegardée, transcription lancée");
       } else {
         setSuccess("Session sauvegardée");
@@ -921,6 +941,9 @@ export default function App() {
                   <span className={`status ${recMode === "live" ? "processing" : "recording"}`}>
                     {recMode === "live" ? "📡 LIVE" : "🎙️ REC"} — {formatTimer(pendingDuration * 1000)}
                   </span>
+                  <div style={{ fontSize: 10, color: "var(--text-soft)", marginTop: 4, fontFamily: "monospace" }}>
+                    audio: {pendingBlob ? `${(pendingBlob.size / 1024).toFixed(0)} KB ${pendingBlob.type}` : "aucun blob!"}
+                  </div>
                 </div>
 
                 <div className="form-group">
@@ -1435,7 +1458,7 @@ export default function App() {
       </div>
 
       {/* ─── VERSION FOOTER ──────────────────────── */}
-      <div className="version-footer">v0.3.1</div>
+      <div className="version-footer">v0.3.2</div>
     </div>
   );
 }
