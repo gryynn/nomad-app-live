@@ -84,6 +84,15 @@ export default function App() {
   const [liveEditText, setLiveEditText] = useState("");
   const lastSpeechLenRef = useRef(0);
 
+  // Post-stop review
+  const [recTitle, setRecTitle] = useState("");
+  const [pendingBlob, setPendingBlob] = useState(null);
+  const [pendingDuration, setPendingDuration] = useState(0);
+  const [showReview, setShowReview] = useState(false);
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [tagSuggestions, setTagSuggestions] = useState([]);
+  const [tagSuggestPos, setTagSuggestPos] = useState(null);
+
   // Speech recognition
   const speech = useSpeechRecognition();
 
@@ -261,7 +270,7 @@ export default function App() {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
 
-      recorder.onstop = async () => {
+      recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         if (cancelledRef.current) {
           cancelledRef.current = false;
@@ -272,28 +281,10 @@ export default function App() {
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         const durationSec = Math.round((Date.now() - startTimeRef.current) / 1000);
         console.log(`Recording stopped: ${blob.size} bytes, ${durationSec}s, mode=${captureMode}`);
-
-        try {
-          const file = new File([blob], `${captureMode}_${Date.now()}.webm`, { type: "audio/webm" });
-          const result = await api.uploadAudio(file);
-          console.log("Upload result:", result);
-
-          if (captureMode === "live") {
-            // LIVE: audio uploaded, let user choose to keep free transcript or upgrade with Groq
-            setLiveSessionId(result.session_id);
-            setSuccess("Audio uploadé — choisissez : garder la transcription live ou lancer Groq");
-            await loadSessions();
-          } else {
-            // REC: just upload, no transcription
-            setSuccess("Enregistrement uploadé (sans transcription)");
-            await loadSessions();
-          }
-        } catch (e) {
-          setError(`Erreur upload: ${e.message}`);
-        }
-
-        setRecMode(null);
-        setMode(null);
+        // Defer upload — show review screen first
+        setPendingBlob(blob);
+        setPendingDuration(durationSec);
+        setShowReview(true);
       };
 
       recorder.start(1000);
@@ -302,6 +293,9 @@ export default function App() {
       setIsPaused(false);
       setRecTime(0);
       setRecNotesText("");
+      setRecTitle("");
+      setShowReview(false);
+      setTagSuggestions([]);
       cancelledRef.current = false;
       startTimeRef.current = Date.now();
 
@@ -404,51 +398,127 @@ export default function App() {
     }
   }
 
-  // ─── LIVE post-stop: keep free transcript or upgrade with Groq
-  async function handleKeepLiveTranscript() {
-    if (!liveSessionId || !livePreviewText) return;
-    try {
-      await api.updateSession(liveSessionId, {
-        transcript: livePreviewText,
-        status: "transcribed",
-      });
-      const words = livePreviewText.split(/\s+/).filter(Boolean).length;
-      setSuccess(`Transcription live sauvegardée (${words} mots, gratuit)`);
-      setLivePreviewText("");
-      setLiveSessionId(null);
-      await loadSessions();
-    } catch (e) {
-      setError(`Erreur sauvegarde: ${e.message}`);
+  // ─── Post-stop review: save session with all metadata ───
+  function extractHashtags(text) {
+    const matches = text.match(/#(\w+)/g);
+    if (!matches) return [];
+    return [...new Set(matches.map((m) => m.slice(1).toLowerCase()))];
+  }
+
+  function handleNotesChange(e) {
+    const text = e.target.value;
+    setRecNotesText(text);
+    const cursor = e.target.selectionStart;
+    const beforeCursor = text.slice(0, cursor);
+    const hashMatch = beforeCursor.match(/#(\w*)$/);
+    if (hashMatch && hashMatch[1].length > 0) {
+      const query = hashMatch[1].toLowerCase();
+      const matching = tags.filter(
+        (t) => t.name.toLowerCase().startsWith(query) && t.name.toLowerCase() !== query
+      );
+      setTagSuggestions(matching.slice(0, 5));
+      setTagSuggestPos({ start: cursor - hashMatch[0].length, end: cursor });
+    } else {
+      setTagSuggestions([]);
+      setTagSuggestPos(null);
     }
   }
 
-  async function handleGroqUpgrade() {
-    if (!liveSessionId) return;
+  function selectTagSuggestion(tagName) {
+    if (!tagSuggestPos) return;
+    const before = recNotesText.slice(0, tagSuggestPos.start);
+    const after = recNotesText.slice(tagSuggestPos.end);
+    const newText = before + `#${tagName} ` + after;
+    setRecNotesText(newText);
+    setTagSuggestions([]);
+    setTagSuggestPos(null);
+    setTimeout(() => {
+      const ta = recNotesRef.current;
+      if (ta) {
+        const pos = before.length + tagName.length + 2;
+        ta.selectionStart = ta.selectionEnd = pos;
+        ta.focus();
+      }
+    }, 0);
+  }
+
+  async function handleSaveReview(doTranscribe = false) {
+    if (!pendingBlob) return;
+    setReviewSaving(true);
+    setError(null);
     try {
-      setSuccess("Transcription Groq en cours...");
-      await api.transcribe(liveSessionId, selectedEngine);
-      const sid = liveSessionId;
-      setLivePreviewText("");
-      setLiveSessionId(null);
-      // Poll for result
-      const poll = async (attempts = 0) => {
-        if (attempts > 12) return;
-        await loadSessions();
-        try {
-          const detail = await api.getSession(sid);
-          if (detail.transcript) {
-            setSuccess(`Transcription Groq terminée (${detail.transcript_words} mots)`);
-          } else {
-            setTimeout(() => poll(attempts + 1), 5000);
-          }
-        } catch (_) {
-          setTimeout(() => poll(attempts + 1), 5000);
+      // 1. Upload audio
+      const file = new File([pendingBlob], `${recMode}_${Date.now()}.webm`, { type: "audio/webm" });
+      const result = await api.uploadAudio(file);
+      const sessionId = result.session_id;
+
+      // 2. Update session metadata
+      const updates = { input_mode: recMode };
+      if (recTitle.trim()) updates.title = recTitle.trim();
+      if (pendingDuration) updates.duration_seconds = pendingDuration;
+      if (recMode === "live" && livePreviewText) {
+        updates.transcript = livePreviewText;
+        updates.status = "transcribed";
+      }
+      await api.updateSession(sessionId, updates);
+
+      // 3. Save notes
+      if (recNotesText.trim()) {
+        await api.addNote(sessionId, recNotesText.trim());
+      }
+
+      // 4. Extract tags from notes and apply to session
+      const hashtags = extractHashtags(recNotesText);
+      if (hashtags.length > 0) {
+        const matchingTagIds = tags
+          .filter((t) => hashtags.includes(t.name.toLowerCase()))
+          .map((t) => t.id);
+        if (matchingTagIds.length > 0) {
+          await api.setSessionTags(sessionId, matchingTagIds);
         }
-      };
-      setTimeout(() => poll(), 3000);
+      }
+
+      // 5. Optionally trigger transcription
+      if (doTranscribe) {
+        await api.transcribe(sessionId, selectedEngine);
+        setSuccess("Session sauvegardée, transcription lancée");
+      } else {
+        setSuccess("Session sauvegardée");
+      }
+
+      // Cleanup
+      setPendingBlob(null);
+      setShowReview(false);
+      setRecTitle("");
+      setRecNotesText("");
+      setLivePreviewText("");
+      setLiveEditText("");
+      lastSpeechLenRef.current = 0;
+      setLiveSessionId(null);
+      setRecMode(null);
+      setMode(null);
+      setTagSuggestions([]);
+      await loadSessions();
     } catch (e) {
-      setError(`Transcription échouée: ${e.message}`);
+      setError(`Erreur: ${e.message}`);
+    } finally {
+      setReviewSaving(false);
     }
+  }
+
+  function handleDiscardReview() {
+    setPendingBlob(null);
+    setShowReview(false);
+    setRecTitle("");
+    setRecNotesText("");
+    setLivePreviewText("");
+    setLiveEditText("");
+    lastSpeechLenRef.current = 0;
+    setLiveSessionId(null);
+    setRecMode(null);
+    setMode(null);
+    setTagSuggestions([]);
+    setSuccess("Enregistrement annulé");
   }
 
   // ─── Session expand ─────────────────────────────
@@ -562,7 +632,7 @@ export default function App() {
         {captureOpen && (
           <>
             {/* Engine selector */}
-            {!isRecording && (
+            {!isRecording && !showReview && (
               <div style={{ marginBottom: 12 }}>
                 <label>Moteur</label>
                 <div className="engine-row">
@@ -582,7 +652,7 @@ export default function App() {
             )}
 
             {/* Mode buttons — one click to capture */}
-            {!isRecording && mode === null && (
+            {!isRecording && mode === null && !showReview && (
               <div className="mode-bar">
                 <button className="mode-btn rec" onClick={() => startRecording("rec")}>
                   🎙️ REC
@@ -651,21 +721,114 @@ export default function App() {
               </div>
             )}
 
-            {/* ─── LIVE PREVIEW (after stop, user chooses) ─ */}
-            {!isRecording && livePreviewText && (
-              <div className="live-preview">
-                <label>Transcription live (Web Speech API — gratuit)</label>
-                <div className="transcript">{livePreviewText}</div>
-                {liveSessionId && (
-                  <div className="live-preview-actions">
-                    <button className="btn btn-primary btn-sm" onClick={handleKeepLiveTranscript} style={{ flex: 1 }}>
-                      Garder (gratuit)
-                    </button>
-                    <button className="btn btn-ghost btn-sm" onClick={handleGroqUpgrade} style={{ flex: 1 }}>
-                      Transcrire Groq
-                    </button>
+            {/* ─── POST-STOP REVIEW ─────────────────── */}
+            {!isRecording && showReview && (
+              <div className="review-screen">
+                <div className="review-header">
+                  <span className={`status ${recMode === "live" ? "processing" : "recording"}`}>
+                    {recMode === "live" ? "📡 LIVE" : "🎙️ REC"} — {formatTimer(pendingDuration * 1000)}
+                  </span>
+                </div>
+
+                <div className="form-group">
+                  <label>Titre</label>
+                  <input
+                    type="text"
+                    placeholder="Titre de la session..."
+                    value={recTitle}
+                    onChange={(e) => setRecTitle(e.target.value)}
+                  />
+                </div>
+
+                {recMode === "live" && livePreviewText && (
+                  <div className="form-group">
+                    <label>Transcription live ({livePreviewText.split(/\s+/).filter(Boolean).length} mots)</label>
+                    <textarea
+                      value={livePreviewText}
+                      onChange={(e) => setLivePreviewText(e.target.value)}
+                      style={{ minHeight: 80 }}
+                    />
                   </div>
                 )}
+
+                <div className="form-group" style={{ position: "relative" }}>
+                  <label>Notes</label>
+                  <textarea
+                    ref={recNotesRef}
+                    placeholder="Notes libres... tapez # pour ajouter un tag"
+                    value={recNotesText}
+                    onChange={handleNotesChange}
+                    style={{ minHeight: 80 }}
+                  />
+                  {tagSuggestions.length > 0 && (
+                    <div className="tag-suggest">
+                      {tagSuggestions.map((t) => (
+                        <div key={t.id} className="tag-suggest-item" onClick={() => selectTagSuggestion(t.name)}>
+                          {t.emoji} #{t.name}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {extractHashtags(recNotesText).length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <label>Tags détectés</label>
+                    <div className="tags-row">
+                      {extractHashtags(recNotesText).map((ht) => {
+                        const match = tags.find((t) => t.name.toLowerCase() === ht);
+                        return (
+                          <span key={ht} className={`tag-chip ${match ? "selected" : ""}`}>
+                            {match ? match.emoji : "🏷️"} {ht}
+                            {!match && <span style={{ fontSize: 9, opacity: 0.5 }}> (nouveau)</span>}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="form-group">
+                  <label>Moteur de transcription</label>
+                  <div className="engine-row">
+                    {engines.filter((e) => e.status === "online").map((eng) => (
+                      <button
+                        key={eng.id}
+                        className={`engine-chip ${selectedEngine === eng.id ? "selected" : ""}`}
+                        onClick={() => setSelectedEngine(eng.id)}
+                      >
+                        {eng.id === "groq-turbo" ? "Groq" : eng.id === "groq-large" ? "Groq+" : eng.id === "deepgram" ? "DG" : "WYNONA"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => handleSaveReview(false)}
+                    disabled={reviewSaving}
+                    style={{ flex: 2 }}
+                  >
+                    {reviewSaving ? "Sauvegarde..." : "Sauvegarder"}
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => handleSaveReview(true)}
+                    disabled={reviewSaving}
+                    style={{ flex: 1 }}
+                  >
+                    Transcrire
+                  </button>
+                </div>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={handleDiscardReview}
+                  disabled={reviewSaving}
+                  style={{ width: "100%", marginTop: 8 }}
+                >
+                  Annuler
+                </button>
               </div>
             )}
 
@@ -756,13 +919,33 @@ export default function App() {
 
           {notesOpen && (
             <>
-              <textarea
-                ref={recNotesRef}
-                className="rec-notes-textarea"
-                placeholder="Notes libres... utilisez Mark pour insérer un timestamp, ou tapez #tag"
-                value={recNotesText}
-                onChange={(e) => setRecNotesText(e.target.value)}
-              />
+              <div className="form-group">
+                <label>Titre</label>
+                <input
+                  type="text"
+                  placeholder="Titre de la session..."
+                  value={recTitle}
+                  onChange={(e) => setRecTitle(e.target.value)}
+                />
+              </div>
+              <div style={{ position: "relative" }}>
+                <textarea
+                  ref={recNotesRef}
+                  className="rec-notes-textarea"
+                  placeholder="Notes libres... utilisez Mark pour insérer un timestamp, ou tapez #tag"
+                  value={recNotesText}
+                  onChange={handleNotesChange}
+                />
+                {tagSuggestions.length > 0 && (
+                  <div className="tag-suggest">
+                    {tagSuggestions.map((t) => (
+                      <div key={t.id} className="tag-suggest-item" onClick={() => selectTagSuggestion(t.name)}>
+                        {t.emoji} #{t.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="rec-notes-bar">
                 <button className="btn btn-sm btn-ghost" onClick={insertMark}>
                   Mark ⏱
