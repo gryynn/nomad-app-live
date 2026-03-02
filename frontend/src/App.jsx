@@ -780,6 +780,7 @@ export default function App() {
       const updated = await api.setSessionTags(sessionId, newIds);
       setExpandedSession(updated);
       await loadTags(); // refresh session_count
+      await loadSessions(); // refresh inline tags in list
     } catch (e) {
       setError(`Erreur tags: ${e.message}`);
     }
@@ -1541,19 +1542,71 @@ export default function App() {
                 <div className="session-header" onClick={() => toggleExpand(s.id)}>
                   <span className="emoji">{inputModeEmoji(s.input_mode)}</span>
                   <div className="info">
-                    {editingTitleId === s.id ? (
-                      <input
-                        className="title-edit-input"
-                        autoFocus
-                        value={editingTitleValue}
-                        onChange={(e) => setEditingTitleValue(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") handleSaveTitle(s.id); if (e.key === "Escape") setEditingTitleId(null); }}
-                        onBlur={() => handleSaveTitle(s.id)}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <div className="title" onDoubleClick={(e) => { e.stopPropagation(); setEditingTitleId(s.id); setEditingTitleValue(s.title || ""); }}>
-                        {s.title || "(sans titre)"}
+                    <div className="title-row">
+                      {editingTitleId === s.id ? (
+                        <input
+                          className="title-edit-input"
+                          autoFocus
+                          value={editingTitleValue}
+                          onChange={(e) => setEditingTitleValue(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleSaveTitle(s.id); if (e.key === "Escape") setEditingTitleId(null); }}
+                          onBlur={() => handleSaveTitle(s.id)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <div className="title" onDoubleClick={(e) => { e.stopPropagation(); setEditingTitleId(s.id); setEditingTitleValue(s.title || ""); }}>
+                          {s.title || "(sans titre)"}
+                        </div>
+                      )}
+                    </div>
+                    {/* Inline tags */}
+                    {(s.tags?.length > 0 || expandedId === s.id) && (
+                      <div className="session-inline-tags" onClick={(e) => e.stopPropagation()}>
+                        {(s.tags || []).map((tag) => (
+                          <span
+                            key={tag.id}
+                            className="inline-tag"
+                            onClick={() => {
+                              const ids = (s.tags || []).map((t) => t.id);
+                              toggleSessionTag(s.id, tag.id, ids);
+                            }}
+                          >
+                            {tag.emoji} {tag.name} <span className="inline-tag-x">✕</span>
+                          </span>
+                        ))}
+                        {expandedId === s.id && (
+                          <>
+                            {tags.filter((t) => !(s.tags || []).find((st) => st.id === t.id)).slice(0, 3).map((tag) => (
+                              <span
+                                key={tag.id}
+                                className="inline-tag suggestion"
+                                onClick={() => {
+                                  const ids = (s.tags || []).map((t) => t.id);
+                                  toggleSessionTag(s.id, tag.id, ids);
+                                }}
+                              >
+                                {tag.emoji} {tag.name}
+                              </span>
+                            ))}
+                            <span
+                              className="inline-tag add-tag"
+                              onClick={async () => {
+                                const name = prompt("Nouveau tag :");
+                                if (!name?.trim()) return;
+                                try {
+                                  const newTag = await api.createTag({ name: name.trim(), emoji: "🏷️" });
+                                  await loadTags();
+                                  const currentIds = (s.tags || []).map((t) => t.id);
+                                  const updated = await api.setSessionTags(s.id, [...currentIds, newTag.id]);
+                                  setExpandedSession(updated);
+                                  await loadSessions();
+                                } catch (e) {
+                                  setError(`Erreur: ${e.message}`);
+                                }
+                              }}
+                            >+</span>
+                          </>
+                        )}
                       </div>
                     )}
                     <div className="meta">
@@ -1756,55 +1809,6 @@ export default function App() {
                         )}
                       </div>
                     )}
-
-                    {/* Tags */}
-                    {(() => {
-                      const sessionTagIds = (expandedSession.tags || []).map((t) => t.id);
-                      const selectedTags = tags.filter((t) => sessionTagIds.includes(t.id));
-                      const availableTags = tags.filter((t) => !sessionTagIds.includes(t.id));
-                      return (
-                        <div style={{ marginTop: 12 }}>
-                          <label>Tags {selectedTags.length > 0 && <span style={{ color: "var(--accent)", fontWeight: 400 }}>({selectedTags.length})</span>}</label>
-                          {/* Selected tags — prominent */}
-                          {selectedTags.length > 0 && (
-                            <div className="tags-row" style={{ marginBottom: 6 }}>
-                              {selectedTags.map((tag) => (
-                                <span key={tag.id} className="tag-chip selected" onClick={() => toggleSessionTag(s.id, tag.id, sessionTagIds)}>
-                                  {tag.emoji} {tag.name} <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 2 }}>✕</span>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          {/* Available tags — subdued */}
-                          <div className="tags-row tags-available">
-                            {availableTags.map((tag) => (
-                              <span key={tag.id} className="tag-chip" onClick={() => toggleSessionTag(s.id, tag.id, sessionTagIds)}>
-                                {tag.emoji} {tag.name}
-                              </span>
-                            ))}
-                            {/* Quick-create tag */}
-                            <span
-                              className="tag-chip tag-create"
-                              onClick={async () => {
-                                const name = prompt("Nouveau tag :");
-                                if (!name?.trim()) return;
-                                try {
-                                  const newTag = await api.createTag({ name: name.trim(), emoji: "🏷️" });
-                                  await loadTags();
-                                  const newIds = [...sessionTagIds, newTag.id];
-                                  const updated = await api.setSessionTags(s.id, newIds);
-                                  setExpandedSession(updated);
-                                } catch (e) {
-                                  setError(`Erreur création tag: ${e.message}`);
-                                }
-                              }}
-                            >
-                              + tag
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })()}
 
                     {/* Notes */}
                     <div style={{ marginTop: 12, position: "relative" }}>

@@ -130,7 +130,30 @@ async def list_sessions(
                 params=params,
             )
             response.raise_for_status()
-            return response.json()
+            sessions = response.json()
+
+            # Batch-fetch tags for all returned sessions
+            if sessions:
+                session_ids = [s["id"] for s in sessions]
+                ids_param = ",".join(session_ids)
+                tags_resp = await client.get(
+                    f"{BASE_URL}/session_tags",
+                    headers=HEADERS,
+                    params={
+                        "session_id": f"in.({ids_param})",
+                        "select": "session_id,tag:tags(*)",
+                    },
+                )
+                if tags_resp.status_code == 200:
+                    tag_map = {}
+                    for item in tags_resp.json():
+                        sid = item["session_id"]
+                        if item.get("tag"):
+                            tag_map.setdefault(sid, []).append(item["tag"])
+                    for s in sessions:
+                        s["tags"] = tag_map.get(s["id"], [])
+
+            return sessions
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail="Failed to fetch sessions")
     except Exception as e:
