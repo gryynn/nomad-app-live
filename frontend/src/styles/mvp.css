@@ -343,7 +343,7 @@ label {
 
 /* Session detail (expanded) */
 .session-detail {
-  padding: 0 12px 12px;
+  padding: 10px 12px 12px;
   border-top: 1px solid var(--border);
 }
 .session-detail .transcript {
@@ -857,17 +857,27 @@ label {
 }
 
 /* Custom audio player */
-.custom-player {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+.custom-player-wrap {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: 10px;
+  overflow: hidden;
 }
-.custom-player audio { display: none; }
+.custom-player-wrap audio { display: none; }
+.waveform-canvas {
+  width: 100%;
+  height: 48px;
+  display: block;
+  cursor: pointer;
+  padding: 4px 10px;
+}
+.custom-player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 8px;
+}
 .player-btn {
   width: 32px;
   height: 32px;

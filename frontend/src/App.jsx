@@ -139,6 +139,9 @@ export default function App() {
   const [playerTime, setPlayerTime] = useState(0);
   const [playerDuration, setPlayerDuration] = useState(0);
   const playerProgressRef = useRef(null);
+  const waveformCanvasRef = useRef(null);
+  const waveformDataRef = useRef(null);
+  const waveformAnimRef = useRef(null);
 
   // Offline sync
   const offline = useOfflineSync();
@@ -686,6 +689,7 @@ export default function App() {
     setPlayerPlaying(false);
     setPlayerTime(0);
     setPlayerDuration(0);
+    waveformDataRef.current = null;
     setSessionTagSuggestions([]);
     try {
       const detail = await api.getSession(id);
@@ -940,6 +944,88 @@ export default function App() {
     const a = audioPlayerRef.current;
     if (!a || !playerDuration || !isFinite(playerDuration)) return;
     a.currentTime = Math.max(0, Math.min(playerDuration, a.currentTime + delta));
+    setPlayerTime(a.currentTime);
+  }
+
+  // Decode audio and extract waveform peaks
+  async function loadWaveform(url) {
+    try {
+      const resp = await fetch(url);
+      const arrayBuf = await resp.arrayBuffer();
+      const actx = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuf = await actx.decodeAudioData(arrayBuf);
+      actx.close();
+      const raw = audioBuf.getChannelData(0);
+      const samples = 200;
+      const blockSize = Math.floor(raw.length / samples);
+      const peaks = [];
+      for (let i = 0; i < samples; i++) {
+        let sum = 0;
+        for (let j = 0; j < blockSize; j++) {
+          sum += Math.abs(raw[i * blockSize + j]);
+        }
+        peaks.push(sum / blockSize);
+      }
+      const maxPeak = Math.max(...peaks) || 1;
+      waveformDataRef.current = peaks.map((p) => p / maxPeak);
+      drawWaveform();
+    } catch (e) {
+      console.warn("[WAVEFORM] decode failed:", e);
+      waveformDataRef.current = null;
+    }
+  }
+
+  function drawWaveform() {
+    const canvas = waveformCanvasRef.current;
+    const peaks = waveformDataRef.current;
+    if (!canvas || !peaks) return;
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+
+    const barW = Math.max(1, (w / peaks.length) - 1);
+    const gap = 1;
+    const pct = (playerDuration && isFinite(playerDuration)) ? playerTime / playerDuration : 0;
+
+    for (let i = 0; i < peaks.length; i++) {
+      const x = (i / peaks.length) * w;
+      const barH = Math.max(2, peaks[i] * (h - 4));
+      const y = (h - barH) / 2;
+      const played = (i / peaks.length) <= pct;
+      ctx.fillStyle = played ? "var(--accent)" : "var(--text-soft)";
+      // fallback for CSS vars
+      const cs = getComputedStyle(canvas);
+      ctx.fillStyle = played
+        ? (cs.getPropertyValue("--accent").trim() || "#fff")
+        : (cs.getPropertyValue("--text-soft").trim() || "#555");
+      ctx.fillRect(x, y, barW, barH);
+    }
+
+    // Playhead line
+    if (pct > 0) {
+      ctx.fillStyle = getComputedStyle(canvas).getPropertyValue("--accent").trim() || "#fff";
+      ctx.fillRect(pct * w - 1, 0, 2, h);
+    }
+  }
+
+  // Animate waveform playhead
+  useEffect(() => {
+    if (waveformDataRef.current) drawWaveform();
+  }); // runs every render when playerTime changes — cheap operation
+
+  function handleWaveformClick(e) {
+    const canvas = waveformCanvasRef.current;
+    const a = audioPlayerRef.current;
+    if (!canvas || !a || !playerDuration || !isFinite(playerDuration)) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX ?? e.touches?.[0]?.clientX) - rect.left;
+    const pct = Math.max(0, Math.min(1, x / rect.width));
+    a.currentTime = pct * playerDuration;
     setPlayerTime(a.currentTime);
   }
 
@@ -1487,12 +1573,12 @@ export default function App() {
                   <div className="session-detail">
                     {/* Audio Player */}
                     {s.audio_url && (
-                      <div className="custom-player">
+                      <div className="custom-player-wrap">
                         <audio
                           ref={audioPlayerRef}
                           src={s.audio_url}
                           preload="metadata"
-                          onLoadedMetadata={handlePlayerDuration}
+                          onLoadedMetadata={(e) => { handlePlayerDuration(e); if (!waveformDataRef.current) loadWaveform(s.audio_url); }}
                           onDurationChange={handlePlayerDuration}
                           onTimeUpdate={(e) => {
                             setPlayerTime(e.target.currentTime);
@@ -1502,25 +1588,34 @@ export default function App() {
                           onPlay={() => setPlayerPlaying(true)}
                           onPause={() => setPlayerPlaying(false)}
                         />
-                        <button className="player-btn" onClick={togglePlayPause} title={playerPlaying ? "Pause" : "Play"}>
-                          {playerPlaying ? "❚❚" : "▶"}
-                        </button>
-                        <span className="player-time">{formatPlayerTime(playerTime)}</span>
-                        <div className="player-track" onClick={handlePlayerSeek} ref={playerProgressRef}>
-                          <div
-                            className="player-progress"
-                            style={{ width: playerDuration && isFinite(playerDuration) ? `${(playerTime / playerDuration) * 100}%` : "0%" }}
-                          />
-                          <div
-                            className="player-thumb"
-                            style={{ left: playerDuration && isFinite(playerDuration) ? `${(playerTime / playerDuration) * 100}%` : "0%" }}
-                            onMouseDown={handleThumbDrag}
-                            onTouchStart={handleThumbDrag}
-                          />
+                        {/* Waveform */}
+                        <canvas
+                          ref={waveformCanvasRef}
+                          className="waveform-canvas"
+                          onClick={handleWaveformClick}
+                        />
+                        {/* Controls */}
+                        <div className="custom-player">
+                          <button className="player-btn" onClick={togglePlayPause} title={playerPlaying ? "Pause" : "Play"}>
+                            {playerPlaying ? "❚❚" : "▶"}
+                          </button>
+                          <span className="player-time">{formatPlayerTime(playerTime)}</span>
+                          <div className="player-track" onClick={handlePlayerSeek} ref={playerProgressRef}>
+                            <div
+                              className="player-progress"
+                              style={{ width: playerDuration && isFinite(playerDuration) ? `${(playerTime / playerDuration) * 100}%` : "0%" }}
+                            />
+                            <div
+                              className="player-thumb"
+                              style={{ left: playerDuration && isFinite(playerDuration) ? `${(playerTime / playerDuration) * 100}%` : "0%" }}
+                              onMouseDown={handleThumbDrag}
+                              onTouchStart={handleThumbDrag}
+                            />
+                          </div>
+                          <span className="player-time">{formatPlayerTime(playerDuration)}</span>
+                          <button className="player-skip-btn" onClick={() => skipPlayer(-10)} title="-10s">-10</button>
+                          <button className="player-skip-btn" onClick={() => skipPlayer(30)} title="+30s">+30</button>
                         </div>
-                        <span className="player-time">{formatPlayerTime(playerDuration)}</span>
-                        <button className="player-skip-btn" onClick={() => skipPlayer(-10)} title="-10s">-10</button>
-                        <button className="player-skip-btn" onClick={() => skipPlayer(30)} title="+30s">+30</button>
                       </div>
                     )}
 
