@@ -121,7 +121,6 @@ export default function App() {
   const [captureOpen, setCaptureOpen] = useState(true);
   const [notesOpen, setNotesOpen] = useState(true);
   const [sessionsOpen, setSessionsOpen] = useState(false);
-  const [tagsOpen, setTagsOpen] = useState(false);
 
   // Session filters
   const [filterStatus, setFilterStatus] = useState("all");
@@ -566,7 +565,7 @@ export default function App() {
 
   // ─── Post-stop review: save session with all metadata ───
   function extractHashtags(text) {
-    const matches = text.match(/#(\w+)/g);
+    const matches = text.match(/#([\w.\-]+)/g);
     if (!matches) return [];
     return [...new Set(matches.map((m) => m.slice(1).toLowerCase()))];
   }
@@ -576,7 +575,7 @@ export default function App() {
     setRecNotesText(text);
     const cursor = e.target.selectionStart;
     const beforeCursor = text.slice(0, cursor);
-    const hashMatch = beforeCursor.match(/#(\w*)$/);
+    const hashMatch = beforeCursor.match(/#([\w.\-]*)$/);
     if (hashMatch && hashMatch[1].length > 0) {
       const query = hashMatch[1].toLowerCase();
       const matching = tags.filter(
@@ -797,10 +796,26 @@ export default function App() {
     }
   }
 
-  // ─── Tags toggle on session ─────────────────────
+  // ─── Tags toggle on session (bidirectional sync with notes) ──
   async function toggleSessionTag(sessionId, tagId, currentTagIds) {
     const has = currentTagIds.includes(tagId);
     const newIds = has ? currentTagIds.filter((t) => t !== tagId) : [...currentTagIds, tagId];
+    const tag = tags.find((t) => t.id === tagId);
+    // Sync notes text: add/remove #tagname
+    if (tag) {
+      const hashtagPattern = new RegExp(`#${tag.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$)`, 'gi');
+      if (has) {
+        // Removing tag → remove #tagname from notes
+        setSessionNotesText((prev) => prev.replace(hashtagPattern, '').replace(/\s{2,}/g, ' ').trim());
+        setSessionNotesDirty(true);
+      } else {
+        // Adding tag → append #tagname to notes if not present
+        if (!hashtagPattern.test(sessionNotesText)) {
+          setSessionNotesText((prev) => (prev ? prev.trimEnd() + ' ' : '') + `#${tag.name}`);
+          setSessionNotesDirty(true);
+        }
+      }
+    }
     try {
       const updated = await api.setSessionTags(sessionId, newIds);
       setExpandedSession(updated);
@@ -811,13 +826,15 @@ export default function App() {
   }
 
   // ─── Session notes (in expanded detail) ─────────
+  const pendingTagSyncRef = useRef(null);
   function handleSessionNotesChange(e) {
     const text = e.target.value;
     setSessionNotesText(text);
     setSessionNotesDirty(true);
+    // Autocomplete suggestions
     const cursor = e.target.selectionStart;
     const beforeCursor = text.slice(0, cursor);
-    const hashMatch = beforeCursor.match(/#(\w*)$/);
+    const hashMatch = beforeCursor.match(/#([\w.\-]*)$/);
     if (hashMatch && hashMatch[1].length > 0) {
       const query = hashMatch[1].toLowerCase();
       const matching = tags.filter(
@@ -829,6 +846,24 @@ export default function App() {
       setSessionTagSuggestions([]);
       setSessionTagSuggestPos(null);
     }
+    // Sync hashtags → tag chips (debounced to avoid API spam)
+    if (pendingTagSyncRef.current) clearTimeout(pendingTagSyncRef.current);
+    pendingTagSyncRef.current = setTimeout(async () => {
+      if (!expandedId || !expandedSession) return;
+      const noteHashtags = extractHashtags(text);
+      const currentTagIds = (expandedSession.tags || []).map((t) => t.id);
+      const matchingTagIds = tags.filter((t) => noteHashtags.includes(t.name.toLowerCase())).map((t) => t.id);
+      const newIds = [...new Set([...currentTagIds, ...matchingTagIds])];
+      if (newIds.length > currentTagIds.length) {
+        try {
+          const updated = await api.setSessionTags(expandedId, newIds);
+          setExpandedSession(updated);
+          await loadTags();
+        } catch (e) {
+          console.error("[TAG-SYNC] failed:", e);
+        }
+      }
+    }, 1500);
   }
 
   function selectSessionTagSuggestion(tagName) {
@@ -1377,6 +1412,24 @@ export default function App() {
                     </button>
                   ))}
                 </div>
+                {tags.length > 0 && (
+                  <div className="filter-chips">
+                    {tags.map((tag) => (
+                      <button
+                        key={tag.id}
+                        className={`filter-chip ${filterTagIds.includes(tag.id) ? "active" : ""}`}
+                        onClick={() => {
+                          setFilterTagIds((prev) =>
+                            prev.includes(tag.id) ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
+                          );
+                        }}
+                      >
+                        {tag.emoji} {tag.name}
+                        {tag.session_count > 0 && <span style={{ opacity: 0.5 }}> {tag.session_count}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1592,40 +1645,8 @@ export default function App() {
         )}
       </div>
 
-      {/* ─── TAGS SECTION ──────────────────────────── */}
-      <div className="section">
-        <div className="section-title clickable" onClick={() => setTagsOpen((v) => !v)}>
-          <span className={`section-chevron ${tagsOpen ? "open" : ""}`}>&#9656;</span>
-          Tags ({tags.length})
-        </div>
-        {tagsOpen && (
-          <>
-            <div className="tags-row">
-              {tags.map((tag) => (
-                <span
-                  key={tag.id}
-                  className={`tag-chip ${filterTagIds.includes(tag.id) ? "selected" : ""}`}
-                  onClick={() => {
-                    setFilterTagIds((prev) =>
-                      prev.includes(tag.id) ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
-                    );
-                    setSessionsOpen(true);
-                  }}
-                >
-                  {tag.emoji} {tag.name}
-                  {tag.session_count > 0 && <span style={{ fontSize: 10, color: "var(--text-soft)" }}> ({tag.session_count})</span>}
-                </span>
-              ))}
-            </div>
-            {tags.length === 0 && !loading && (
-              <div className="empty">Aucun tag.</div>
-            )}
-          </>
-        )}
-      </div>
-
       {/* ─── VERSION FOOTER ──────────────────────── */}
-      <div className="version-footer">v0.4.1</div>
+      <div className="version-footer">v0.4.2</div>
     </div>
   );
 }

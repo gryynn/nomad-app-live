@@ -424,18 +424,24 @@ label {
 .engine-chip {
   padding: 6px 12px;
   border-radius: 20px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: 1px solid #444;
+  background: var(--surface2);
+  color: var(--text);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
 }
+.engine-chip:hover {
+  border-color: #666;
+  background: #252525;
+}
 .engine-chip.selected {
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--accent);
+  font-weight: 600;
 }
-.engine-chip.offline { opacity: 0.4; cursor: not-allowed; }
+.engine-chip.offline { opacity: 0.35; cursor: not-allowed; }
 
 /* Error display */
 .error-msg {
