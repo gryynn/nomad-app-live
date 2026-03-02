@@ -304,6 +304,14 @@ export default function App() {
     // captureMode: "rec" or "live"
     setError(null);
     try {
+      // Start speech recognition BEFORE getUserMedia to avoid mic conflicts
+      if (captureMode === "live") {
+        speech.start("fr-FR");
+        setLivePreviewText("");
+        setLiveEditText("");
+        lastSpeechLenRef.current = 0;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
       // Web Audio API for real-time visualizer
@@ -357,13 +365,6 @@ export default function App() {
         setRecTime(Date.now() - startTimeRef.current);
       }, 100);
 
-      // Start speech recognition for LIVE mode
-      if (captureMode === "live") {
-        speech.start("fr-FR");
-        setLivePreviewText("");
-        setLiveEditText("");
-        lastSpeechLenRef.current = 0;
-      }
     } catch (e) {
       setError(`Micro non accessible: ${e.message}`);
     }
@@ -860,21 +861,27 @@ export default function App() {
                 {recMode === "live" && (
                   <div>
                     {/* Status line */}
-                    <div style={{ fontSize: 11, color: "var(--text-soft)", padding: "2px 0 6px", display: "flex", gap: 8, alignItems: "center" }}>
-                      <span style={{ color: speech.isListening ? "var(--green)" : "var(--red)" }}>
-                        {speech.isListening ? "Écoute active" : speech.isSupported ? "Inactif" : "API non supportée"}
+                    <div style={{ fontSize: 11, color: "var(--text-soft)", padding: "2px 0 6px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: speech.isListening ? "var(--green)" : "var(--red)" }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor", display: "inline-block" }} />
+                        {speech.isListening ? "Écoute" : speech.isSupported ? "Inactif" : "Non supporté"}
                       </span>
                       {speech.isListening && !liveEditText && !speech.interimText && (
-                        <span style={{ color: "var(--text-soft)", fontStyle: "italic" }}>Parlez...</span>
+                        <span style={{ fontStyle: "italic" }}>Parlez...</span>
                       )}
                       {liveEditText && (
                         <span>{liveEditText.trim().split(/\s+/).filter(Boolean).length} mots</span>
+                      )}
+                      {!speech.isListening && isRecording && !isPaused && speech.isSupported && (
+                        <button className="btn btn-sm btn-ghost" style={{ padding: "2px 8px", fontSize: 10 }} onClick={() => speech.start("fr-FR")}>
+                          Relancer
+                        </button>
                       )}
                     </div>
 
                     <textarea
                       className="live-edit-textarea"
-                      placeholder="La transcription apparaît ici... vous pouvez aussi éditer le texte"
+                      placeholder={speech.isSupported ? "La transcription apparaît ici... vous pouvez aussi éditer" : "Web Speech API non supportée — utilisez Chrome sur desktop/Android"}
                       value={liveEditText}
                       onChange={(e) => setLiveEditText(e.target.value)}
                     />
@@ -883,22 +890,13 @@ export default function App() {
                     )}
                     {speech.error && (
                       <div className="error-msg" style={{ fontSize: 12, padding: "6px 10px" }}>
-                        Erreur: {speech.error}
-                        {!speech.isSupported && " — Ce navigateur ne supporte pas la reconnaissance vocale (utilisez Chrome)"}
+                        {speech.error}
                       </div>
                     )}
-                    {!speech.isListening && isRecording && !isPaused && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                        <span style={{ fontSize: 12, color: "var(--orange)" }}>
-                          {speech.isSupported ? "Reconnaissance vocale inactive" : "Non supporté sur ce navigateur"}
-                        </span>
-                        {speech.isSupported && (
-                          <button className="btn btn-sm btn-ghost" onClick={() => speech.start("fr-FR")}>
-                            Relancer
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    {/* Debug — temporary */}
+                    <div style={{ fontSize: 9, color: "var(--text-soft)", opacity: 0.5, paddingTop: 4, fontFamily: "monospace" }}>
+                      supported={String(speech.isSupported)} listening={String(speech.isListening)} transcript={speech.transcript?.length || 0} edit={liveEditText.length} err={speech.error || "none"}
+                    </div>
                   </div>
                 )}
 
@@ -1437,7 +1435,7 @@ export default function App() {
       </div>
 
       {/* ─── VERSION FOOTER ──────────────────────── */}
-      <div className="version-footer">v0.3.0</div>
+      <div className="version-footer">v0.3.1</div>
     </div>
   );
 }
