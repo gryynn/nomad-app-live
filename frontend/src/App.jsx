@@ -29,6 +29,15 @@ function inputModeEmoji(mode) {
   return map[mode] || "📄";
 }
 
+function getTimeFilterDate(preset) {
+  const now = new Date();
+  if (preset === "1h") return new Date(now - 3600_000).toISOString();
+  if (preset === "today") { now.setHours(0, 0, 0, 0); return now.toISOString(); }
+  if (preset === "week") return new Date(now - 7 * 86400_000).toISOString();
+  if (preset === "month") return new Date(now - 30 * 86400_000).toISOString();
+  return null;
+}
+
 
 // ═══════════════════════════════════════════════════════
 // APP
@@ -110,8 +119,14 @@ export default function App() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterSearch, setFilterSearch] = useState("");
   const [filterInputMode, setFilterInputMode] = useState("all");
-  const [filterTagId, setFilterTagId] = useState(null);
+  const [filterTagIds, setFilterTagIds] = useState([]);
+  const [filterTime, setFilterTime] = useState("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const filterSearchTimer = useRef(null);
+
+  // Editable transcript in session detail
+  const [editingTranscript, setEditingTranscript] = useState("");
+  const [transcriptDirty, setTranscriptDirty] = useState(false);
 
   // ─── Load data ────────────────────────────────────
   const loadSessions = useCallback(async (filters = {}) => {
@@ -120,18 +135,21 @@ export default function App() {
       const st = filters.status ?? filterStatus;
       const sm = filters.input_mode ?? filterInputMode;
       const sq = filters.search ?? filterSearch;
-      const stag = filters.tag ?? filterTagId;
+      const stags = filters.tags ?? filterTagIds;
+      const stime = filters.time ?? filterTime;
       if (st && st !== "all") params.status = st;
       if (sm && sm !== "all") params.input_mode = sm;
       if (sq) params.search = sq;
-      if (stag) params.tag = stag;
+      if (stags && stags.length > 0) params.tag = stags.join(",");
+      const createdAfter = getTimeFilterDate(stime);
+      if (createdAfter) params.created_after = createdAfter;
       const data = await api.getSessions(params);
       setSessions(data);
     } catch (e) {
       console.error("Failed to load sessions:", e);
       setError(`Sessions: ${e.message}`);
     }
-  }, [filterStatus, filterInputMode, filterSearch, filterTagId]);
+  }, [filterStatus, filterInputMode, filterSearch, filterTagIds, filterTime]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -160,7 +178,7 @@ export default function App() {
     // Skip on initial mount (loading still true)
     if (loading) return;
     loadSessions();
-  }, [filterStatus, filterInputMode, filterTagId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filterStatus, filterInputMode, filterTagIds, filterTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading) return;
@@ -586,10 +604,12 @@ export default function App() {
     setExpandedId(id);
     setExpandedSession(null);
     setSessionNotesDirty(false);
+    setTranscriptDirty(false);
     setSessionTagSuggestions([]);
     try {
       const detail = await api.getSession(id);
       setExpandedSession(detail);
+      setEditingTranscript(detail.transcript || "");
       const existingNotes = (detail.notes || []).map((n) => n.content).join("\n");
       setSessionNotesText(existingNotes);
     } catch (e) {
@@ -712,6 +732,34 @@ export default function App() {
       setError(`Erreur: ${e.message}`);
     }
   }
+
+  // ─── Save edited transcript ─────────────────────
+  async function handleSaveTranscript(sessionId) {
+    try {
+      const wordCount = editingTranscript.trim().split(/\s+/).filter(Boolean).length;
+      await api.updateSession(sessionId, {
+        transcript: editingTranscript.trim(),
+        transcript_words: wordCount,
+      });
+      setTranscriptDirty(false);
+      const detail = await api.getSession(sessionId);
+      setExpandedSession(detail);
+      setEditingTranscript(detail.transcript || "");
+      await loadSessions();
+      setSuccess("Transcription mise à jour");
+    } catch (e) {
+      setError(`Erreur: ${e.message}`);
+    }
+  }
+
+  // ─── Filter helpers ────────────────────────────────
+  const activeFilterCount = [
+    filterStatus !== "all",
+    filterSearch !== "",
+    filterInputMode !== "all",
+    filterTime !== "all",
+    filterTagIds.length > 0,
+  ].filter(Boolean).length;
 
   // ═══════════════════════════════════════════════════
   // RENDER
@@ -1095,59 +1143,83 @@ export default function App() {
         <div className="section-title clickable" onClick={() => setSessionsOpen((v) => !v)}>
           <span className={`section-chevron ${sessionsOpen ? "open" : ""}`}>&#9656;</span>
           Mes sessions ({sessions.length})
-          {filterTagId && (
-            <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 4, textTransform: "none", letterSpacing: 0 }}>
-              filtre: {tags.find((t) => t.id === filterTagId)?.name || "tag"}
-              <span onClick={(e) => { e.stopPropagation(); setFilterTagId(null); }} style={{ cursor: "pointer", marginLeft: 2 }}>✕</span>
+          {activeFilterCount > 0 && (
+            <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 4, textTransform: "none", letterSpacing: 0 }}>
+              {activeFilterCount} filtre{activeFilterCount > 1 ? "s" : ""}
+              <span onClick={(e) => { e.stopPropagation(); setFilterStatus("all"); setFilterSearch(""); setFilterInputMode("all"); setFilterTagIds([]); setFilterTime("all"); }} style={{ cursor: "pointer", marginLeft: 2 }}>✕</span>
             </span>
           )}
         </div>
 
         {sessionsOpen && (
           <>
-            {/* Filter bar */}
-            <div className="filter-bar">
-              <input
-                className="filter-search"
-                type="text"
-                placeholder="Rechercher..."
-                value={filterSearch}
-                onChange={(e) => setFilterSearch(e.target.value)}
-              />
-              <div className="filter-chips">
-                {["all", "pending", "uploaded", "transcribed", "error"].map((st) => (
-                  <button
-                    key={st}
-                    className={`filter-chip ${filterStatus === st ? "active" : ""}`}
-                    onClick={() => setFilterStatus(st)}
-                  >
-                    {st === "all" ? "Tout" : st}
-                  </button>
-                ))}
-              </div>
-              <div className="filter-chips">
-                {[
-                  { val: "all", label: "Tous" },
-                  { val: "rec", label: "🎙️ rec" },
-                  { val: "live", label: "📡 live" },
-                  { val: "import", label: "📁 import" },
-                  { val: "paste", label: "📋 paste" },
-                ].map((m) => (
-                  <button
-                    key={m.val}
-                    className={`filter-chip ${filterInputMode === m.val ? "active" : ""}`}
-                    onClick={() => setFilterInputMode(m.val)}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
+            {/* Collapsible filter bar */}
+            <div className="filter-toggle" onClick={() => setFiltersOpen((v) => !v)}>
+              <span className={`section-chevron ${filtersOpen ? "open" : ""}`}>&#9656;</span>
+              <span>Filtres</span>
+              {activeFilterCount > 0 && <span className="filter-badge">{activeFilterCount}</span>}
             </div>
+            {filtersOpen && (
+              <div className="filter-bar">
+                <input
+                  className="filter-search"
+                  type="text"
+                  placeholder="Rechercher..."
+                  value={filterSearch}
+                  onChange={(e) => setFilterSearch(e.target.value)}
+                />
+                <div className="filter-chips">
+                  {[
+                    { val: "all", label: "Tout" },
+                    { val: "1h", label: "1h" },
+                    { val: "today", label: "Aujourd'hui" },
+                    { val: "week", label: "7j" },
+                    { val: "month", label: "30j" },
+                  ].map((t) => (
+                    <button
+                      key={t.val}
+                      className={`filter-chip ${filterTime === t.val ? "active" : ""}`}
+                      onClick={() => setFilterTime(t.val)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="filter-chips">
+                  {["all", "pending", "uploaded", "transcribed", "error"].map((st) => (
+                    <button
+                      key={st}
+                      className={`filter-chip ${filterStatus === st ? "active" : ""}`}
+                      onClick={() => setFilterStatus(st)}
+                    >
+                      {st === "all" ? "Tout" : st}
+                    </button>
+                  ))}
+                </div>
+                <div className="filter-chips">
+                  {[
+                    { val: "all", label: "Tous" },
+                    { val: "rec", label: "🎙️ rec" },
+                    { val: "live", label: "📡 live" },
+                    { val: "import", label: "📁 import" },
+                    { val: "paste", label: "📋 paste" },
+                  ].map((m) => (
+                    <button
+                      key={m.val}
+                      className={`filter-chip ${filterInputMode === m.val ? "active" : ""}`}
+                      onClick={() => setFilterInputMode(m.val)}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {loading && <div className="loading">Chargement...</div>}
 
             {!loading && sessions.length === 0 && (
-              <div className="empty">Aucune session{filterStatus !== "all" || filterSearch || filterInputMode !== "all" || filterTagId ? " pour ces filtres" : ". Utilisez Capture ci-dessus"}.</div>
+              <div className="empty">Aucune session{activeFilterCount > 0 ? " pour ces filtres" : ". Utilisez Capture ci-dessus"}.</div>
             )}
 
             {sessions.map((s) => (
@@ -1172,8 +1244,21 @@ export default function App() {
                     {/* Transcript */}
                     {expandedSession.transcript ? (
                       <div>
-                        <label>Transcription ({expandedSession.transcript_words} mots)</label>
-                        <div className="transcript">{expandedSession.transcript}</div>
+                        <label>Transcription ({editingTranscript.trim().split(/\s+/).filter(Boolean).length} mots)</label>
+                        <textarea
+                          className="transcript-edit"
+                          value={editingTranscript}
+                          onChange={(e) => { setEditingTranscript(e.target.value); setTranscriptDirty(true); }}
+                        />
+                        {transcriptDirty && (
+                          <button
+                            className="btn btn-sm btn-primary"
+                            style={{ marginTop: 6, width: "auto" }}
+                            onClick={() => handleSaveTranscript(s.id)}
+                          >
+                            Sauvegarder transcription
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <div style={{ fontSize: 13, color: "var(--text-soft)", padding: "8px 0" }}>
@@ -1270,7 +1355,7 @@ export default function App() {
                       {expandedSession.transcript && (
                         <button
                           className="btn btn-sm btn-ghost"
-                          onClick={() => { navigator.clipboard.writeText(expandedSession.transcript); setSuccess("Copié !"); }}
+                          onClick={() => { navigator.clipboard.writeText(editingTranscript || expandedSession.transcript); setSuccess("Copié !"); }}
                         >
                           Copier
                         </button>
@@ -1311,14 +1396,12 @@ export default function App() {
               {tags.map((tag) => (
                 <span
                   key={tag.id}
-                  className={`tag-chip ${filterTagId === tag.id ? "selected" : ""}`}
+                  className={`tag-chip ${filterTagIds.includes(tag.id) ? "selected" : ""}`}
                   onClick={() => {
-                    if (filterTagId === tag.id) {
-                      setFilterTagId(null);
-                    } else {
-                      setFilterTagId(tag.id);
-                      setSessionsOpen(true);
-                    }
+                    setFilterTagIds((prev) =>
+                      prev.includes(tag.id) ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
+                    );
+                    setSessionsOpen(true);
                   }}
                 >
                   {tag.emoji} {tag.name}
@@ -1334,7 +1417,7 @@ export default function App() {
       </div>
 
       {/* ─── VERSION FOOTER ──────────────────────── */}
-      <div className="version-footer">v0.2.0</div>
+      <div className="version-footer">v0.3.0</div>
     </div>
   );
 }
