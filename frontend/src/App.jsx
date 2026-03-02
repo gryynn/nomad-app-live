@@ -983,51 +983,33 @@ export default function App() {
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
+    if (!w || !h) return;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, w, h);
 
-    const barW = Math.max(1, (w / peaks.length) - 1);
-    const gap = 1;
+    const cs = getComputedStyle(canvas);
+    const accentColor = cs.getPropertyValue("--accent").trim() || "#fff";
+    const softColor = cs.getPropertyValue("--text-soft").trim() || "#444";
     const pct = (playerDuration && isFinite(playerDuration)) ? playerTime / playerDuration : 0;
+    const barW = Math.max(1.5, (w / peaks.length) - 1);
 
     for (let i = 0; i < peaks.length; i++) {
       const x = (i / peaks.length) * w;
-      const barH = Math.max(2, peaks[i] * (h - 4));
-      const y = (h - barH) / 2;
+      const barH = Math.max(1, peaks[i] * h * 0.9);
       const played = (i / peaks.length) <= pct;
-      ctx.fillStyle = played ? "var(--accent)" : "var(--text-soft)";
-      // fallback for CSS vars
-      const cs = getComputedStyle(canvas);
-      ctx.fillStyle = played
-        ? (cs.getPropertyValue("--accent").trim() || "#fff")
-        : (cs.getPropertyValue("--text-soft").trim() || "#555");
-      ctx.fillRect(x, y, barW, barH);
+      ctx.fillStyle = played ? accentColor : softColor;
+      ctx.globalAlpha = played ? 0.9 : 0.35;
+      ctx.fillRect(x, h - barH, barW, barH);
     }
-
-    // Playhead line
-    if (pct > 0) {
-      ctx.fillStyle = getComputedStyle(canvas).getPropertyValue("--accent").trim() || "#fff";
-      ctx.fillRect(pct * w - 1, 0, 2, h);
-    }
+    ctx.globalAlpha = 1;
   }
 
-  // Animate waveform playhead
+  // Redraw waveform on every time update
   useEffect(() => {
     if (waveformDataRef.current) drawWaveform();
-  }); // runs every render when playerTime changes — cheap operation
-
-  function handleWaveformClick(e) {
-    const canvas = waveformCanvasRef.current;
-    const a = audioPlayerRef.current;
-    if (!canvas || !a || !playerDuration || !isFinite(playerDuration)) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX ?? e.touches?.[0]?.clientX) - rect.left;
-    const pct = Math.max(0, Math.min(1, x / rect.width));
-    a.currentTime = pct * playerDuration;
-    setPlayerTime(a.currentTime);
-  }
+  }); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Filter helpers ────────────────────────────────
   const activeFilterCount = [
@@ -1573,7 +1555,7 @@ export default function App() {
                   <div className="session-detail">
                     {/* Audio Player */}
                     {s.audio_url && (
-                      <div className="custom-player-wrap">
+                      <div className="custom-player">
                         <audio
                           ref={audioPlayerRef}
                           src={s.audio_url}
@@ -1588,34 +1570,25 @@ export default function App() {
                           onPlay={() => setPlayerPlaying(true)}
                           onPause={() => setPlayerPlaying(false)}
                         />
-                        {/* Waveform */}
-                        <canvas
-                          ref={waveformCanvasRef}
-                          className="waveform-canvas"
-                          onClick={handleWaveformClick}
-                        />
-                        {/* Controls */}
-                        <div className="custom-player">
-                          <button className="player-btn" onClick={togglePlayPause} title={playerPlaying ? "Pause" : "Play"}>
-                            {playerPlaying ? "❚❚" : "▶"}
-                          </button>
-                          <span className="player-time">{formatPlayerTime(playerTime)}</span>
-                          <div className="player-track" onClick={handlePlayerSeek} ref={playerProgressRef}>
-                            <div
-                              className="player-progress"
-                              style={{ width: playerDuration && isFinite(playerDuration) ? `${(playerTime / playerDuration) * 100}%` : "0%" }}
-                            />
-                            <div
-                              className="player-thumb"
-                              style={{ left: playerDuration && isFinite(playerDuration) ? `${(playerTime / playerDuration) * 100}%` : "0%" }}
-                              onMouseDown={handleThumbDrag}
-                              onTouchStart={handleThumbDrag}
-                            />
-                          </div>
-                          <span className="player-time">{formatPlayerTime(playerDuration)}</span>
-                          <button className="player-skip-btn" onClick={() => skipPlayer(-10)} title="-10s">-10</button>
-                          <button className="player-skip-btn" onClick={() => skipPlayer(30)} title="+30s">+30</button>
+                        <button className="player-btn" onClick={togglePlayPause} title={playerPlaying ? "Pause" : "Play"}>
+                          {playerPlaying ? "❚❚" : "▶"}
+                        </button>
+                        <button className="player-skip-btn" onClick={() => skipPlayer(-10)} title="-10s">-10</button>
+                        <div className="player-track" onClick={handlePlayerSeek} ref={playerProgressRef}>
+                          <canvas ref={waveformCanvasRef} className="waveform-canvas" />
+                          <div
+                            className="player-progress"
+                            style={{ width: playerDuration && isFinite(playerDuration) ? `${(playerTime / playerDuration) * 100}%` : "0%" }}
+                          />
+                          <div
+                            className="player-thumb"
+                            style={{ left: playerDuration && isFinite(playerDuration) ? `${(playerTime / playerDuration) * 100}%` : "0%" }}
+                            onMouseDown={handleThumbDrag}
+                            onTouchStart={handleThumbDrag}
+                          />
                         </div>
+                        <button className="player-skip-btn" onClick={() => skipPlayer(30)} title="+30s">+30</button>
+                        <span className="player-time">{formatPlayerTime(playerTime)} / {formatPlayerTime(playerDuration)}</span>
                       </div>
                     )}
 
