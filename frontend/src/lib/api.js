@@ -7,6 +7,11 @@ async function request(path, options = {}) {
     headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
   });
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    console.error(`[API] Non-JSON response (${res.status}) for ${path}: ${contentType}`);
+    throw new Error(`Erreur serveur (${res.status}). Le backend est peut-être inaccessible.`);
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     const msg = err.detail || res.statusText;
@@ -65,9 +70,16 @@ export const addMark = (id, time, label = null) =>
 export const uploadAudio = (file) => {
   const formData = new FormData();
   formData.append("file", file);
-  console.log(`[API] POST /api/upload (${file.name}, ${file.size} bytes)`);
+  const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+  console.log(`[API] POST /api/upload (${file.name}, ${sizeMB} MB)`);
   return fetch(`${BASE}/api/upload`, { method: "POST", body: formData }).then(
     async (r) => {
+      const contentType = r.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        console.error(`[API] Upload returned non-JSON (${r.status}): ${contentType}`);
+        if (r.status === 413) throw new Error(`Fichier trop volumineux (${sizeMB} MB). Limite serveur dépassée.`);
+        throw new Error(`Erreur serveur (${r.status}). Le backend est peut-être inaccessible.`);
+      }
       const data = await r.json();
       if (!r.ok) throw new Error(data.detail || "Upload failed");
       console.log(`[API] Upload OK`, data);

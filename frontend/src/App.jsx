@@ -75,8 +75,12 @@ export default function App() {
   // Engine selection
   const [selectedEngine, setSelectedEngine] = useState("groq-turbo");
 
-  // Note input
-  const [noteText, setNoteText] = useState("");
+  // Session notes (expanded detail)
+  const sessionNotesRef = useRef(null);
+  const [sessionNotesText, setSessionNotesText] = useState("");
+  const [sessionNotesDirty, setSessionNotesDirty] = useState(false);
+  const [sessionTagSuggestions, setSessionTagSuggestions] = useState([]);
+  const [sessionTagSuggestPos, setSessionTagSuggestPos] = useState(null);
 
   // Live transcription preview + post-stop choice
   const [livePreviewText, setLivePreviewText] = useState("");
@@ -530,9 +534,13 @@ export default function App() {
     }
     setExpandedId(id);
     setExpandedSession(null);
+    setSessionNotesDirty(false);
+    setSessionTagSuggestions([]);
     try {
       const detail = await api.getSession(id);
       setExpandedSession(detail);
+      const existingNotes = (detail.notes || []).map((n) => n.content).join("\n");
+      setSessionNotesText(existingNotes);
     } catch (e) {
       setError(`Erreur chargement session: ${e.message}`);
     }
@@ -589,16 +597,70 @@ export default function App() {
     }
   }
 
-  // ─── Add note ───────────────────────────────────
-  async function handleAddNote(sessionId) {
-    if (!noteText.trim()) return;
+  // ─── Session notes (in expanded detail) ─────────
+  function handleSessionNotesChange(e) {
+    const text = e.target.value;
+    setSessionNotesText(text);
+    setSessionNotesDirty(true);
+    const cursor = e.target.selectionStart;
+    const beforeCursor = text.slice(0, cursor);
+    const hashMatch = beforeCursor.match(/#(\w*)$/);
+    if (hashMatch && hashMatch[1].length > 0) {
+      const query = hashMatch[1].toLowerCase();
+      const matching = tags.filter(
+        (t) => t.name.toLowerCase().startsWith(query) && t.name.toLowerCase() !== query
+      );
+      setSessionTagSuggestions(matching.slice(0, 5));
+      setSessionTagSuggestPos({ start: cursor - hashMatch[0].length, end: cursor });
+    } else {
+      setSessionTagSuggestions([]);
+      setSessionTagSuggestPos(null);
+    }
+  }
+
+  function selectSessionTagSuggestion(tagName) {
+    if (!sessionTagSuggestPos) return;
+    const before = sessionNotesText.slice(0, sessionTagSuggestPos.start);
+    const after = sessionNotesText.slice(sessionTagSuggestPos.end);
+    const newText = before + `#${tagName} ` + after;
+    setSessionNotesText(newText);
+    setSessionNotesDirty(true);
+    setSessionTagSuggestions([]);
+    setSessionTagSuggestPos(null);
+    setTimeout(() => {
+      const ta = sessionNotesRef.current;
+      if (ta) {
+        const pos = before.length + tagName.length + 2;
+        ta.selectionStart = ta.selectionEnd = pos;
+        ta.focus();
+      }
+    }, 0);
+  }
+
+  async function handleSaveSessionNotes(sessionId) {
+    if (!sessionNotesText.trim()) return;
     try {
-      await api.addNote(sessionId, noteText.trim());
-      setNoteText("");
+      await api.addNote(sessionId, sessionNotesText.trim());
+      // Apply #tags from notes to session
+      const hashtags = extractHashtags(sessionNotesText);
+      if (hashtags.length > 0) {
+        const sessionTagIds = (expandedSession.tags || []).map((t) => t.id);
+        const newTagIds = tags
+          .filter((t) => hashtags.includes(t.name.toLowerCase()))
+          .map((t) => t.id);
+        const mergedIds = [...new Set([...sessionTagIds, ...newTagIds])];
+        if (mergedIds.length > sessionTagIds.length) {
+          await api.setSessionTags(sessionId, mergedIds);
+        }
+      }
+      setSessionNotesDirty(false);
       const detail = await api.getSession(sessionId);
       setExpandedSession(detail);
+      const updatedNotes = (detail.notes || []).map((n) => n.content).join("\n");
+      setSessionNotesText(updatedNotes);
+      setSuccess("Notes sauvegardées");
     } catch (e) {
-      setError(`Erreur note: ${e.message}`);
+      setError(`Erreur: ${e.message}`);
     }
   }
 
@@ -1053,24 +1115,34 @@ export default function App() {
                     </div>
 
                     {/* Notes */}
-                    <div style={{ marginTop: 12 }}>
+                    <div style={{ marginTop: 12, position: "relative" }}>
                       <label>Notes</label>
-                      {(expandedSession.notes || []).map((n) => (
-                        <div key={n.id} style={{ fontSize: 13, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
-                          {n.content}
-                          <span style={{ fontSize: 10, color: "var(--text-soft)", marginLeft: 8 }}>{formatDate(n.created_at)}</span>
+                      <textarea
+                        ref={sessionNotesRef}
+                        className="rec-notes-textarea"
+                        placeholder="Notes de session... tapez # pour ajouter un tag"
+                        value={sessionNotesText}
+                        onChange={handleSessionNotesChange}
+                        style={{ minHeight: 60 }}
+                      />
+                      {sessionTagSuggestions.length > 0 && (
+                        <div className="tag-suggest">
+                          {sessionTagSuggestions.map((t) => (
+                            <div key={t.id} className="tag-suggest-item" onClick={() => selectSessionTagSuggestion(t.name)}>
+                              {t.emoji} #{t.name}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                      <div className="note-row">
-                        <input
-                          type="text"
-                          placeholder="Ajouter une note..."
-                          value={noteText}
-                          onChange={(e) => setNoteText(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && handleAddNote(s.id)}
-                        />
-                        <button className="btn btn-sm btn-ghost" onClick={() => handleAddNote(s.id)}>+</button>
-                      </div>
+                      )}
+                      {sessionNotesDirty && (
+                        <button
+                          className="btn btn-sm btn-primary"
+                          style={{ marginTop: 6, width: "auto" }}
+                          onClick={() => handleSaveSessionNotes(s.id)}
+                        >
+                          Sauvegarder notes
+                        </button>
+                      )}
                     </div>
 
                     {/* Marks */}
