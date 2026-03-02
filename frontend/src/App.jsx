@@ -887,10 +887,15 @@ export default function App() {
 
   // ─── Audio player helpers ─────────────────────────
   function formatPlayerTime(s) {
-    if (!s || isNaN(s)) return "0:00";
+    if (!s || !isFinite(s) || isNaN(s)) return "–:––";
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
     return `${m}:${sec.toString().padStart(2, "0")}`;
+  }
+
+  function handlePlayerDuration(e) {
+    const d = e.target.duration;
+    if (d && isFinite(d)) setPlayerDuration(d);
   }
 
   function togglePlayPause() {
@@ -900,19 +905,40 @@ export default function App() {
     else { a.pause(); setPlayerPlaying(false); }
   }
 
-  function handlePlayerSeek(e) {
+  function seekFromEvent(e) {
     const a = audioPlayerRef.current;
-    if (!a || !playerDuration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX ?? e.touches?.[0]?.clientX) - rect.left;
-    const pct = Math.max(0, Math.min(1, x / rect.width));
+    const track = playerProgressRef.current;
+    if (!a || !playerDuration || !isFinite(playerDuration) || !track) return;
+    const rect = track.getBoundingClientRect();
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+    if (clientX == null) return;
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     a.currentTime = pct * playerDuration;
     setPlayerTime(a.currentTime);
   }
 
+  function handlePlayerSeek(e) {
+    seekFromEvent(e);
+  }
+
+  function handleThumbDrag(e) {
+    e.preventDefault();
+    const onMove = (ev) => seekFromEvent(ev);
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onMove);
+    window.addEventListener("touchend", onUp);
+  }
+
   function skipPlayer(delta) {
     const a = audioPlayerRef.current;
-    if (!a) return;
+    if (!a || !playerDuration || !isFinite(playerDuration)) return;
     a.currentTime = Math.max(0, Math.min(playerDuration, a.currentTime + delta));
     setPlayerTime(a.currentTime);
   }
@@ -1466,8 +1492,12 @@ export default function App() {
                           ref={audioPlayerRef}
                           src={s.audio_url}
                           preload="metadata"
-                          onLoadedMetadata={(e) => setPlayerDuration(e.target.duration)}
-                          onTimeUpdate={(e) => setPlayerTime(e.target.currentTime)}
+                          onLoadedMetadata={handlePlayerDuration}
+                          onDurationChange={handlePlayerDuration}
+                          onTimeUpdate={(e) => {
+                            setPlayerTime(e.target.currentTime);
+                            if (!playerDuration || !isFinite(playerDuration)) handlePlayerDuration(e);
+                          }}
                           onEnded={() => setPlayerPlaying(false)}
                           onPlay={() => setPlayerPlaying(true)}
                           onPause={() => setPlayerPlaying(false)}
@@ -1476,8 +1506,17 @@ export default function App() {
                           {playerPlaying ? "❚❚" : "▶"}
                         </button>
                         <span className="player-time">{formatPlayerTime(playerTime)}</span>
-                        <div className="player-track" onClick={handlePlayerSeek} onTouchStart={handlePlayerSeek} ref={playerProgressRef}>
-                          <div className="player-progress" style={{ width: playerDuration ? `${(playerTime / playerDuration) * 100}%` : "0%" }} />
+                        <div className="player-track" onClick={handlePlayerSeek} ref={playerProgressRef}>
+                          <div
+                            className="player-progress"
+                            style={{ width: playerDuration && isFinite(playerDuration) ? `${(playerTime / playerDuration) * 100}%` : "0%" }}
+                          />
+                          <div
+                            className="player-thumb"
+                            style={{ left: playerDuration && isFinite(playerDuration) ? `${(playerTime / playerDuration) * 100}%` : "0%" }}
+                            onMouseDown={handleThumbDrag}
+                            onTouchStart={handleThumbDrag}
+                          />
                         </div>
                         <span className="player-time">{formatPlayerTime(playerDuration)}</span>
                         <button className="player-skip-btn" onClick={() => skipPlayer(-10)} title="-10s">-10</button>
