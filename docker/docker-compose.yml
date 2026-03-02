@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: nomad-api
     env_file:
-      - ../.env
+      - ../backend/.env
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.nomad.rule=Host(`recorder.mgdesign.cloud`)"
