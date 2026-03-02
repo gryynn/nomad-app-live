@@ -56,6 +56,40 @@ html, body {
 }
 .header .status-dot.offline { background: var(--red); }
 
+/* Autosave + offline indicators */
+.autosave-indicator {
+  font-size: 10px;
+  color: var(--text-soft);
+  animation: autosave-fade 1.5s ease-in-out infinite;
+}
+@keyframes autosave-fade {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.offline-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: var(--red);
+  color: #fff;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.pending-badge {
+  font-size: 10px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--orange);
+  color: #000;
+  font-weight: 700;
+  cursor: help;
+}
+
 /* Section */
 .section {
   margin-bottom: 28px;
@@ -286,6 +320,20 @@ label {
 }
 .session-header .chevron.open { transform: rotate(90deg); }
 
+/* Inline title edit */
+.title-edit-input {
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 2px 6px;
+  width: 100%;
+  outline: none;
+  font-family: inherit;
+}
+
 /* Status badges */
 .status {
   display: inline-block;
@@ -348,6 +396,22 @@ label {
 .tag-chip.selected {
   border-color: var(--accent);
   background: rgba(255, 255, 255, 0.06);
+  color: var(--accent);
+}
+.tags-available .tag-chip {
+  opacity: 0.55;
+}
+.tags-available .tag-chip:hover {
+  opacity: 1;
+}
+.tag-chip.tag-create {
+  border-style: dashed;
+  opacity: 0.4;
+  font-size: 11px;
+}
+.tag-chip.tag-create:hover {
+  opacity: 0.8;
+  border-color: var(--accent);
   color: var(--accent);
 }
 
@@ -590,6 +654,28 @@ label {
   font-style: italic;
 }
 
+/* Stealth mode — discreet indicator */
+.stealth-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 0;
+}
+.stealth-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  animation: stealth-breathe 3s ease-in-out infinite;
+}
+@keyframes stealth-breathe {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+.stealth-toggle {
+  transition: opacity 0.2s;
+}
+
 /* Free-form recording notes textarea */
 .rec-notes-textarea {
   width: 100%;
@@ -660,6 +746,10 @@ label {
 }
 .engine-select:focus {
   border-color: var(--accent);
+}
+.engine-select option {
+  background: var(--surface);
+  color: var(--text);
 }
 
 /* Transcribe row (select + button) */

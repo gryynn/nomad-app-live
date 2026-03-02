@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as api from "./lib/api.js";
 import useSpeechRecognition from "./hooks/useSpeechRecognition.js";
+import { useOfflineSync } from "./hooks/useOfflineSync.js";
 
 // ─── Helpers ──────────────────────────────────────────
 function formatDate(iso) {
@@ -84,6 +85,10 @@ export default function App() {
   // Engine selection
   const [selectedEngine, setSelectedEngine] = useState("groq-turbo");
 
+  // Session title editing
+  const [editingTitleId, setEditingTitleId] = useState(null);
+  const [editingTitleValue, setEditingTitleValue] = useState("");
+
   // Session notes (expanded detail)
   const sessionNotesRef = useRef(null);
   const [sessionNotesText, setSessionNotesText] = useState("");
@@ -109,6 +114,9 @@ export default function App() {
   // Speech recognition
   const speech = useSpeechRecognition();
 
+  // Stealth mode (LIVE)
+  const [stealthMode, setStealthMode] = useState(false);
+
   // Section collapse states
   const [captureOpen, setCaptureOpen] = useState(true);
   const [notesOpen, setNotesOpen] = useState(true);
@@ -118,7 +126,6 @@ export default function App() {
   // Session filters
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterSearch, setFilterSearch] = useState("");
-  const [filterInputMode, setFilterInputMode] = useState("all");
   const [filterTagIds, setFilterTagIds] = useState([]);
   const [filterTime, setFilterTime] = useState("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -128,17 +135,21 @@ export default function App() {
   const [editingTranscript, setEditingTranscript] = useState("");
   const [transcriptDirty, setTranscriptDirty] = useState(false);
 
+  // Offline sync + autosave
+  const offline = useOfflineSync();
+  const [autoSaving, setAutoSaving] = useState(false);
+  const autoSaveTranscriptTimer = useRef(null);
+  const autoSaveNotesTimer = useRef(null);
+
   // ─── Load data ────────────────────────────────────
   const loadSessions = useCallback(async (filters = {}) => {
     try {
       const params = { limit: 50 };
       const st = filters.status ?? filterStatus;
-      const sm = filters.input_mode ?? filterInputMode;
       const sq = filters.search ?? filterSearch;
       const stags = filters.tags ?? filterTagIds;
       const stime = filters.time ?? filterTime;
       if (st && st !== "all") params.status = st;
-      if (sm && sm !== "all") params.input_mode = sm;
       if (sq) params.search = sq;
       if (stags && stags.length > 0) params.tag = stags.join(",");
       const createdAfter = getTimeFilterDate(stime);
@@ -149,7 +160,7 @@ export default function App() {
       console.error("Failed to load sessions:", e);
       setError(`Sessions: ${e.message}`);
     }
-  }, [filterStatus, filterInputMode, filterSearch, filterTagIds, filterTime]);
+  }, [filterStatus, filterSearch, filterTagIds, filterTime]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -178,7 +189,7 @@ export default function App() {
     // Skip on initial mount (loading still true)
     if (loading) return;
     loadSessions();
-  }, [filterStatus, filterInputMode, filterTagIds, filterTime]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filterStatus, filterTagIds, filterTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading) return;
@@ -194,6 +205,67 @@ export default function App() {
   useEffect(() => {
     if (error) { const t = setTimeout(() => setError(null), 8000); return () => clearTimeout(t); }
   }, [error]);
+
+  // ─── Garde-fou navigation (beforeunload) ──────────
+  useEffect(() => {
+    const hasUnsaved = isRecording || showReview || transcriptDirty || sessionNotesDirty || pasteSaving || importUploading;
+    if (!hasUnsaved) return;
+    const handler = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isRecording, showReview, transcriptDirty, sessionNotesDirty, pasteSaving, importUploading]);
+
+  // ─── Autosave transcript (debounced 3s) ───────────
+  useEffect(() => {
+    if (!transcriptDirty || !expandedId) return;
+    if (autoSaveTranscriptTimer.current) clearTimeout(autoSaveTranscriptTimer.current);
+    autoSaveTranscriptTimer.current = setTimeout(async () => {
+      try {
+        setAutoSaving(true);
+        const wordCount = editingTranscript.trim().split(/\s+/).filter(Boolean).length;
+        await api.updateSession(expandedId, { transcript: editingTranscript.trim(), transcript_words: wordCount });
+        setTranscriptDirty(false);
+        const detail = await api.getSession(expandedId);
+        setExpandedSession(detail);
+      } catch (e) {
+        console.error("[AUTOSAVE] transcript failed:", e);
+      } finally {
+        setAutoSaving(false);
+      }
+    }, 3000);
+    return () => clearTimeout(autoSaveTranscriptTimer.current);
+  }, [editingTranscript, transcriptDirty, expandedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Autosave notes (debounced 3s) ───────────────
+  useEffect(() => {
+    if (!sessionNotesDirty || !expandedId) return;
+    if (autoSaveNotesTimer.current) clearTimeout(autoSaveNotesTimer.current);
+    autoSaveNotesTimer.current = setTimeout(async () => {
+      try {
+        setAutoSaving(true);
+        await api.addNote(expandedId, sessionNotesText.trim());
+        const hashtags = extractHashtags(sessionNotesText);
+        if (hashtags.length > 0) {
+          const sessionTagIds = (expandedSession?.tags || []).map((t) => t.id);
+          const newTagIds = await ensureTagsExist(hashtags);
+          const mergedIds = [...new Set([...sessionTagIds, ...newTagIds])];
+          if (mergedIds.length > sessionTagIds.length) {
+            await api.setSessionTags(expandedId, mergedIds);
+          }
+        }
+        setSessionNotesDirty(false);
+        const detail = await api.getSession(expandedId);
+        setExpandedSession(detail);
+        const updatedNotes = (detail.notes || []).map((n) => n.content).join("\n");
+        setSessionNotesText(updatedNotes);
+      } catch (e) {
+        console.error("[AUTOSAVE] notes failed:", e);
+      } finally {
+        setAutoSaving(false);
+      }
+    }, 3000);
+    return () => clearTimeout(autoSaveNotesTimer.current);
+  }, [sessionNotesText, sessionNotesDirty, expandedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Canvas audio visualizer animation loop
   useEffect(() => {
@@ -428,6 +500,7 @@ export default function App() {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setIsPaused(false);
+      setStealthMode(false);
     }
   }
 
@@ -463,6 +536,7 @@ export default function App() {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setIsPaused(false);
+      setStealthMode(false);
       setSuccess("Enregistrement annulé");
     }
   }
@@ -547,7 +621,33 @@ export default function App() {
       const ext = pendingBlob.type.includes("mp4") ? "mp4" : "webm";
       const file = new File([pendingBlob], `${recMode}_${Date.now()}.${ext}`, { type: pendingBlob.type });
       console.log("[SAVE] uploading file:", file.name, file.size, "bytes");
-      const result = await api.uploadAudio(file);
+
+      let result;
+      try {
+        result = await api.uploadAudio(file);
+      } catch (uploadErr) {
+        // Offline fallback: save to IndexedDB
+        console.warn("[SAVE] Upload failed, saving offline:", uploadErr);
+        await offline.saveRecordingOffline({
+          id: `rec_${Date.now()}`,
+          blob: pendingBlob,
+          filename: file.name,
+          mode: recMode,
+          title: recTitle.trim(),
+          notes: recNotesText.trim(),
+          liveTranscript: recMode === "live" ? livePreviewText : null,
+          duration: pendingDuration,
+          engine: doTranscribe ? selectedEngine : null,
+          savedAt: new Date().toISOString(),
+        });
+        setSuccess(`Sauvegardé hors-ligne (${offline.pendingCount + 1} en attente)`);
+        setPendingBlob(null); setShowReview(false); setRecTitle(""); setRecNotesText("");
+        setLivePreviewText(""); setLiveEditText(""); lastSpeechLenRef.current = 0;
+        setLiveSessionId(null); setRecMode(null); setMode(null); setTagSuggestions([]);
+        setReviewSaving(false);
+        return;
+      }
+
       console.log("[SAVE] upload result:", result);
       const sessionId = result.session_id;
 
@@ -683,6 +783,20 @@ export default function App() {
     }
   }
 
+  // ─── Rename session title ──────────────────────
+  async function handleSaveTitle(sessionId) {
+    const newTitle = editingTitleValue.trim();
+    setEditingTitleId(null);
+    if (!newTitle) return;
+    try {
+      await api.updateSession(sessionId, { title: newTitle });
+      setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, title: newTitle } : s));
+      if (expandedSession?.id === sessionId) setExpandedSession((prev) => ({ ...prev, title: newTitle }));
+    } catch (e) {
+      setError(`Erreur renommage: ${e.message}`);
+    }
+  }
+
   // ─── Tags toggle on session ─────────────────────
   async function toggleSessionTag(sessionId, tagId, currentTagIds) {
     const has = currentTagIds.includes(tagId);
@@ -784,7 +898,6 @@ export default function App() {
   const activeFilterCount = [
     filterStatus !== "all",
     filterSearch !== "",
-    filterInputMode !== "all",
     filterTime !== "all",
     filterTagIds.length > 0,
   ].filter(Boolean).length;
@@ -797,7 +910,12 @@ export default function App() {
       {/* ─── HEADER ──────────────────────────────── */}
       <div className="header">
         <h1>N O M A D</h1>
-        <div className={`status-dot ${loading ? "offline" : ""}`} title={loading ? "Chargement..." : "Connecté"} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {autoSaving && <span className="autosave-indicator">sauvegarde...</span>}
+          {!offline.isOnline && <span className="offline-badge">hors-ligne</span>}
+          {offline.pendingCount > 0 && <span className="pending-badge" title={`${offline.pendingCount} élément(s) en attente de sync`}>{offline.pendingCount}</span>}
+          <div className={`status-dot ${!offline.isOnline ? "offline" : loading ? "offline" : ""}`} title={!offline.isOnline ? "Hors-ligne" : loading ? "Chargement..." : "Connecté"} />
+        </div>
       </div>
 
       {/* Messages */}
@@ -885,16 +1003,16 @@ export default function App() {
 
                 {recMode === "live" && (
                   <div>
-                    {/* Status line */}
+                    {/* Stealth toggle + status line */}
                     <div style={{ fontSize: 11, color: "var(--text-soft)", padding: "2px 0 6px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: speech.isListening ? "var(--green)" : "var(--red)" }}>
                         <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor", display: "inline-block" }} />
                         {speech.isListening ? "Écoute" : speech.isSupported ? "Inactif" : "Non supporté"}
                       </span>
-                      {speech.isListening && !liveEditText && !speech.interimText && (
+                      {!stealthMode && speech.isListening && !liveEditText && !speech.interimText && (
                         <span style={{ fontStyle: "italic" }}>Parlez...</span>
                       )}
-                      {liveEditText && (
+                      {!stealthMode && liveEditText && (
                         <span>{liveEditText.trim().split(/\s+/).filter(Boolean).length} mots</span>
                       )}
                       {!speech.isListening && isRecording && !isPaused && speech.isSupported && (
@@ -902,26 +1020,43 @@ export default function App() {
                           Relancer
                         </button>
                       )}
+                      <button
+                        className="btn btn-sm btn-ghost stealth-toggle"
+                        style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 10, opacity: stealthMode ? 1 : 0.5 }}
+                        onClick={() => setStealthMode((v) => !v)}
+                        title={stealthMode ? "Afficher la transcription" : "Masquer la transcription (mode discret)"}
+                      >
+                        {stealthMode ? "👁️" : "👁️‍🗨️"}
+                      </button>
                     </div>
 
-                    <textarea
-                      className="live-edit-textarea"
-                      placeholder={speech.isSupported ? "La transcription apparaît ici... vous pouvez aussi éditer" : "Web Speech API non supportée — utilisez Chrome sur desktop/Android"}
-                      value={liveEditText}
-                      onChange={(e) => setLiveEditText(e.target.value)}
-                    />
-                    {speech.interimText && (
-                      <div className="live-interim">{speech.interimText}...</div>
-                    )}
-                    {speech.error && (
-                      <div className="error-msg" style={{ fontSize: 12, padding: "6px 10px" }}>
-                        {speech.error}
+                    {stealthMode ? (
+                      /* ─── STEALTH: minimal pulsing indicator ─── */
+                      <div className="stealth-indicator">
+                        <div className="stealth-pulse" style={{ background: speech.isListening ? "var(--green)" : "var(--text-soft)" }} />
+                        <span style={{ fontSize: 11, color: "var(--text-soft)" }}>
+                          {liveEditText ? `${liveEditText.trim().split(/\s+/).filter(Boolean).length} mots capturés` : "En attente..."}
+                        </span>
                       </div>
+                    ) : (
+                      /* ─── NORMAL: full transcript view ─── */
+                      <>
+                        <textarea
+                          className="live-edit-textarea"
+                          placeholder={speech.isSupported ? "La transcription apparaît ici... vous pouvez aussi éditer" : "Web Speech API non supportée — utilisez Chrome sur desktop/Android"}
+                          value={liveEditText}
+                          onChange={(e) => setLiveEditText(e.target.value)}
+                        />
+                        {speech.interimText && (
+                          <div className="live-interim">{speech.interimText}...</div>
+                        )}
+                        {speech.error && (
+                          <div className="error-msg" style={{ fontSize: 12, padding: "6px 10px" }}>
+                            {speech.error}
+                          </div>
+                        )}
+                      </>
                     )}
-                    {/* Debug — temporary */}
-                    <div style={{ fontSize: 9, color: "var(--text-soft)", opacity: 0.5, paddingTop: 4, fontFamily: "monospace" }}>
-                      supported={String(speech.isSupported)} listening={String(speech.isListening)} transcript={speech.transcript?.length || 0} edit={liveEditText.length} err={speech.error || "none"}
-                    </div>
                   </div>
                 )}
 
@@ -1192,7 +1327,7 @@ export default function App() {
           {activeFilterCount > 0 && (
             <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 4, textTransform: "none", letterSpacing: 0 }}>
               {activeFilterCount} filtre{activeFilterCount > 1 ? "s" : ""}
-              <span onClick={(e) => { e.stopPropagation(); setFilterStatus("all"); setFilterSearch(""); setFilterInputMode("all"); setFilterTagIds([]); setFilterTime("all"); }} style={{ cursor: "pointer", marginLeft: 2 }}>✕</span>
+              <span onClick={(e) => { e.stopPropagation(); setFilterStatus("all"); setFilterSearch(""); setFilterTagIds([]); setFilterTime("all"); }} style={{ cursor: "pointer", marginLeft: 2 }}>✕</span>
             </span>
           )}
         </div>
@@ -1242,23 +1377,6 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <div className="filter-chips">
-                  {[
-                    { val: "all", label: "Tous" },
-                    { val: "rec", label: "🎙️ rec" },
-                    { val: "live", label: "📡 live" },
-                    { val: "import", label: "📁 import" },
-                    { val: "paste", label: "📋 paste" },
-                  ].map((m) => (
-                    <button
-                      key={m.val}
-                      className={`filter-chip ${filterInputMode === m.val ? "active" : ""}`}
-                      onClick={() => setFilterInputMode(m.val)}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
               </div>
             )}
 
@@ -1273,7 +1391,21 @@ export default function App() {
                 <div className="session-header" onClick={() => toggleExpand(s.id)}>
                   <span className="emoji">{inputModeEmoji(s.input_mode)}</span>
                   <div className="info">
-                    <div className="title">{s.title || "(sans titre)"}</div>
+                    {editingTitleId === s.id ? (
+                      <input
+                        className="title-edit-input"
+                        autoFocus
+                        value={editingTitleValue}
+                        onChange={(e) => setEditingTitleValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSaveTitle(s.id); if (e.key === "Escape") setEditingTitleId(null); }}
+                        onBlur={() => handleSaveTitle(s.id)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <div className="title" onDoubleClick={(e) => { e.stopPropagation(); setEditingTitleId(s.id); setEditingTitleValue(s.title || ""); }}>
+                        {s.title || "(sans titre)"}
+                      </div>
+                    )}
                     <div className="meta">
                       <span className={`status ${s.status}`}>{s.status}</span>
                       {s.duration_seconds ? ` · ${formatDuration(s.duration_seconds)}` : ""}
@@ -1335,23 +1467,53 @@ export default function App() {
                     )}
 
                     {/* Tags */}
-                    <div style={{ marginTop: 12 }}>
-                      <label>Tags</label>
-                      <div className="tags-row">
-                        {tags.map((tag) => {
-                          const sessionTagIds = (expandedSession.tags || []).map((t) => t.id);
-                          return (
+                    {(() => {
+                      const sessionTagIds = (expandedSession.tags || []).map((t) => t.id);
+                      const selectedTags = tags.filter((t) => sessionTagIds.includes(t.id));
+                      const availableTags = tags.filter((t) => !sessionTagIds.includes(t.id));
+                      return (
+                        <div style={{ marginTop: 12 }}>
+                          <label>Tags {selectedTags.length > 0 && <span style={{ color: "var(--accent)", fontWeight: 400 }}>({selectedTags.length})</span>}</label>
+                          {/* Selected tags — prominent */}
+                          {selectedTags.length > 0 && (
+                            <div className="tags-row" style={{ marginBottom: 6 }}>
+                              {selectedTags.map((tag) => (
+                                <span key={tag.id} className="tag-chip selected" onClick={() => toggleSessionTag(s.id, tag.id, sessionTagIds)}>
+                                  {tag.emoji} {tag.name} <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 2 }}>✕</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {/* Available tags — subdued */}
+                          <div className="tags-row tags-available">
+                            {availableTags.map((tag) => (
+                              <span key={tag.id} className="tag-chip" onClick={() => toggleSessionTag(s.id, tag.id, sessionTagIds)}>
+                                {tag.emoji} {tag.name}
+                              </span>
+                            ))}
+                            {/* Quick-create tag */}
                             <span
-                              key={tag.id}
-                              className={`tag-chip ${sessionTagIds.includes(tag.id) ? "selected" : ""}`}
-                              onClick={() => toggleSessionTag(s.id, tag.id, sessionTagIds)}
+                              className="tag-chip tag-create"
+                              onClick={async () => {
+                                const name = prompt("Nouveau tag :");
+                                if (!name?.trim()) return;
+                                try {
+                                  const newTag = await api.createTag({ name: name.trim(), emoji: "🏷️" });
+                                  await loadTags();
+                                  const newIds = [...sessionTagIds, newTag.id];
+                                  const updated = await api.setSessionTags(s.id, newIds);
+                                  setExpandedSession(updated);
+                                } catch (e) {
+                                  setError(`Erreur création tag: ${e.message}`);
+                                }
+                              }}
                             >
-                              {tag.emoji} {tag.name}
+                              + tag
                             </span>
-                          );
-                        })}
-                      </div>
-                    </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Notes */}
                     <div style={{ marginTop: 12, position: "relative" }}>
@@ -1463,7 +1625,7 @@ export default function App() {
       </div>
 
       {/* ─── VERSION FOOTER ──────────────────────── */}
-      <div className="version-footer">v0.3.3</div>
+      <div className="version-footer">v0.4.1</div>
     </div>
   );
 }
