@@ -77,8 +77,9 @@ export default function App() {
   // Note input
   const [noteText, setNoteText] = useState("");
 
-  // Live transcription preview (persists after stop until Groq finishes)
+  // Live transcription preview + post-stop choice
   const [livePreviewText, setLivePreviewText] = useState("");
+  const [liveSessionId, setLiveSessionId] = useState(null);
 
   // Speech recognition
   const speech = useSpeechRecognition();
@@ -258,33 +259,10 @@ export default function App() {
           console.log("Upload result:", result);
 
           if (captureMode === "live") {
-            // LIVE: auto-transcribe with Groq
-            setSuccess("Audio uploadé. Transcription Groq en cours...");
-            try {
-              await api.transcribe(result.session_id, selectedEngine);
-              // Poll for high-quality result
-              const poll = async (attempts = 0) => {
-                if (attempts > 12) { setLivePreviewText(""); return; }
-                await loadSessions();
-                try {
-                  const detail = await api.getSession(result.session_id);
-                  if (detail.transcript) {
-                    setLivePreviewText("");
-                    setSuccess(`Transcription terminée (${detail.transcript_words} mots)`);
-                  } else {
-                    setTimeout(() => poll(attempts + 1), 5000);
-                  }
-                } catch (_) {
-                  setTimeout(() => poll(attempts + 1), 5000);
-                }
-              };
-              setTimeout(() => poll(), 3000);
-            } catch (te) {
-              console.error("Auto-transcribe failed:", te);
-              setError(`Transcription échouée: ${te.message}`);
-              setLivePreviewText("");
-              await loadSessions();
-            }
+            // LIVE: audio uploaded, let user choose to keep free transcript or upgrade with Groq
+            setLiveSessionId(result.session_id);
+            setSuccess("Audio uploadé — choisissez : garder la transcription live ou lancer Groq");
+            await loadSessions();
           } else {
             // REC: just upload, no transcription
             setSuccess("Enregistrement uploadé (sans transcription)");
@@ -373,6 +351,53 @@ export default function App() {
     const hashtags = (text.match(/#[\w\u00C0-\u024F]+/g) || []).map((t) => t.slice(1));
     setRecNotes((prev) => [...prev, { time: recTime, text, hashtags }]);
     setRecNoteInput("");
+  }
+
+  // ─── LIVE post-stop: keep free transcript or upgrade with Groq
+  async function handleKeepLiveTranscript() {
+    if (!liveSessionId || !livePreviewText) return;
+    try {
+      await api.updateSession(liveSessionId, {
+        transcript: livePreviewText,
+        status: "transcribed",
+      });
+      const words = livePreviewText.split(/\s+/).filter(Boolean).length;
+      setSuccess(`Transcription live sauvegardée (${words} mots, gratuit)`);
+      setLivePreviewText("");
+      setLiveSessionId(null);
+      await loadSessions();
+    } catch (e) {
+      setError(`Erreur sauvegarde: ${e.message}`);
+    }
+  }
+
+  async function handleGroqUpgrade() {
+    if (!liveSessionId) return;
+    try {
+      setSuccess("Transcription Groq en cours...");
+      await api.transcribe(liveSessionId, selectedEngine);
+      const sid = liveSessionId;
+      setLivePreviewText("");
+      setLiveSessionId(null);
+      // Poll for result
+      const poll = async (attempts = 0) => {
+        if (attempts > 12) return;
+        await loadSessions();
+        try {
+          const detail = await api.getSession(sid);
+          if (detail.transcript) {
+            setSuccess(`Transcription Groq terminée (${detail.transcript_words} mots)`);
+          } else {
+            setTimeout(() => poll(attempts + 1), 5000);
+          }
+        } catch (_) {
+          setTimeout(() => poll(attempts + 1), 5000);
+        }
+      };
+      setTimeout(() => poll(), 3000);
+    } catch (e) {
+      setError(`Transcription échouée: ${e.message}`);
+    }
   }
 
   // ─── Session expand ─────────────────────────────
@@ -569,11 +594,21 @@ export default function App() {
               </div>
             )}
 
-            {/* ─── LIVE PREVIEW (after stop, waiting for Groq) ─ */}
+            {/* ─── LIVE PREVIEW (after stop, user chooses) ─ */}
             {!isRecording && livePreviewText && (
               <div className="live-preview">
-                <label>Transcription live (en attente Groq...)</label>
+                <label>Transcription live (Web Speech API — gratuit)</label>
                 <div className="transcript">{livePreviewText}</div>
+                {liveSessionId && (
+                  <div className="live-preview-actions">
+                    <button className="btn btn-primary btn-sm" onClick={handleKeepLiveTranscript} style={{ flex: 1 }}>
+                      Garder (gratuit)
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={handleGroqUpgrade} style={{ flex: 1 }}>
+                      Transcrire Groq
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

@@ -476,6 +476,11 @@ label {
   overflow-y: auto;
   white-space: pre-wrap;
 }
+.live-preview-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
 
 /* File input */
 .file-drop {
