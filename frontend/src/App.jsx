@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as api from "./lib/api.js";
+import useSpeechRecognition from "./hooks/useSpeechRecognition.js";
 
 // ─── Helpers ──────────────────────────────────────────
 function formatDate(iso) {
@@ -63,12 +64,23 @@ export default function App() {
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
+  const pausedTimeRef = useRef(0);
+  const audioCtxRef = useRef(null);
+  const analyserRef = useRef(null);
+  const canvasRef = useRef(null);
+  const animFrameRef = useRef(null);
 
   // Engine selection
   const [selectedEngine, setSelectedEngine] = useState("groq-turbo");
 
   // Note input
   const [noteText, setNoteText] = useState("");
+
+  // Live transcription preview (persists after stop until Groq finishes)
+  const [livePreviewText, setLivePreviewText] = useState("");
+
+  // Speech recognition
+  const speech = useSpeechRecognition();
 
   // ─── Load data ────────────────────────────────────
   const loadSessions = useCallback(async () => {
@@ -110,6 +122,53 @@ export default function App() {
   useEffect(() => {
     if (error) { const t = setTimeout(() => setError(null), 8000); return () => clearTimeout(t); }
   }, [error]);
+
+  // Canvas audio visualizer animation loop
+  useEffect(() => {
+    if (!isRecording || isPaused || !analyserRef.current || !canvasRef.current) {
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+      return;
+    }
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const analyser = analyserRef.current;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const draw = () => {
+      animFrameRef.current = requestAnimationFrame(draw);
+      analyser.getByteFrequencyData(dataArray);
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      const barCount = 40;
+      const gap = 2;
+      const barW = (w - gap * (barCount - 1)) / barCount;
+      const color = recMode === "live" ? "rgba(255,255,255,0.85)" : "rgba(255,68,68,0.85)";
+      for (let i = 0; i < barCount; i++) {
+        const idx = Math.floor((i * bufferLength) / barCount);
+        const val = dataArray[idx];
+        const barH = Math.max(2, (val / 255) * h * 0.85);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        const x = i * (barW + gap);
+        const y = (h - barH) / 2;
+        ctx.roundRect(x, y, barW, barH, 1);
+        ctx.fill();
+      }
+    };
+    draw();
+
+    return () => {
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+    };
+  }, [isRecording, isPaused, recMode]);
 
   // ─── Flow A: Paste ──────────────────────────────
   async function handlePasteSave() {
@@ -161,6 +220,17 @@ export default function App() {
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Web Audio API for real-time visualizer
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      source.connect(analyser);
+      audioCtxRef.current = audioCtx;
+      analyserRef.current = analyser;
+
       const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       mediaRecorderRef.current = recorder;
       chunksRef.current = [];
@@ -181,17 +251,31 @@ export default function App() {
           console.log("Upload result:", result);
 
           if (captureMode === "live") {
-            // LIVE: auto-transcribe
-            setSuccess("Enregistrement uploadé. Transcription en cours...");
+            // LIVE: auto-transcribe with Groq
+            setSuccess("Audio uploadé. Transcription Groq en cours...");
             try {
               await api.transcribe(result.session_id, selectedEngine);
-              // Poll for result
-              setTimeout(async () => {
+              // Poll for high-quality result
+              const poll = async (attempts = 0) => {
+                if (attempts > 12) { setLivePreviewText(""); return; }
                 await loadSessions();
-              }, 5000);
+                try {
+                  const detail = await api.getSession(result.session_id);
+                  if (detail.transcript) {
+                    setLivePreviewText("");
+                    setSuccess(`Transcription terminée (${detail.transcript_words} mots)`);
+                  } else {
+                    setTimeout(() => poll(attempts + 1), 5000);
+                  }
+                } catch (_) {
+                  setTimeout(() => poll(attempts + 1), 5000);
+                }
+              };
+              setTimeout(() => poll(), 3000);
             } catch (te) {
               console.error("Auto-transcribe failed:", te);
               setError(`Transcription échouée: ${te.message}`);
+              setLivePreviewText("");
               await loadSessions();
             }
           } else {
@@ -218,6 +302,12 @@ export default function App() {
       timerRef.current = setInterval(() => {
         setRecTime(Date.now() - startTimeRef.current);
       }, 100);
+
+      // Start speech recognition for LIVE mode
+      if (captureMode === "live") {
+        speech.start("fr-FR");
+        setLivePreviewText("");
+      }
     } catch (e) {
       setError(`Micro non accessible: ${e.message}`);
     }
@@ -226,10 +316,20 @@ export default function App() {
   function pauseRecording() {
     if (mediaRecorderRef.current && isRecording) {
       if (isPaused) {
+        // Resume: adjust startTime to compensate for pause duration
         mediaRecorderRef.current.resume();
+        startTimeRef.current = Date.now() - pausedTimeRef.current;
+        timerRef.current = setInterval(() => {
+          setRecTime(Date.now() - startTimeRef.current);
+        }, 100);
+        if (recMode === "live") speech.resume("fr-FR");
         setIsPaused(false);
       } else {
+        // Pause: save elapsed time and stop the interval
         mediaRecorderRef.current.pause();
+        clearInterval(timerRef.current);
+        pausedTimeRef.current = Date.now() - startTimeRef.current;
+        if (recMode === "live") speech.pause();
         setIsPaused(true);
       }
     }
@@ -238,6 +338,22 @@ export default function App() {
   function stopRecording() {
     if (mediaRecorderRef.current) {
       clearInterval(timerRef.current);
+      // Cleanup animation
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+      // Cleanup AudioContext
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close();
+        audioCtxRef.current = null;
+        analyserRef.current = null;
+      }
+      // Save live transcript before stopping speech
+      if (recMode === "live" && speech.transcript) {
+        setLivePreviewText(speech.transcript.trim());
+      }
+      speech.stop();
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setIsPaused(false);
@@ -400,34 +516,31 @@ export default function App() {
               {formatTimer(recTime)}
             </div>
 
-            {!isPaused && (
-              <div className="waveform">
-                {Array.from({ length: 20 }, (_, i) => (
-                  <div
-                    key={i}
-                    className="bar"
-                    style={{
-                      animationDelay: `${i * 0.05}s`,
-                      background: recMode === "live" ? "var(--accent)" : "var(--red)",
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-            {isPaused && <div style={{ textAlign: "center", color: "var(--orange)", padding: 16 }}>En pause</div>}
+            <div className="waveform">
+              <canvas
+                ref={canvasRef}
+                width={400}
+                height={60}
+                style={{ width: "100%", height: 60, opacity: isPaused ? 0.3 : 1, transition: "opacity 0.2s" }}
+              />
+            </div>
+            {isPaused && <div style={{ textAlign: "center", color: "var(--orange)", fontSize: 13, padding: "4px 0" }}>En pause</div>}
 
             {recMode === "live" && (
-              <div style={{ textAlign: "center", fontSize: 12, color: "var(--text-soft)", marginBottom: 8 }}>
-                Transcription automatique au stop ({selectedEngine})
+              <div className="live-transcript">
+                {speech.transcript && <span>{speech.transcript}</span>}
+                {speech.interimText && <span className="interim">{speech.interimText}</span>}
+                {!speech.transcript && !speech.interimText && (
+                  <span className="placeholder">En écoute... parlez maintenant</span>
+                )}
+                <span className="cursor">|</span>
               </div>
             )}
 
             <div className="rec-controls">
-              {recMode === "rec" && (
-                <button className="btn btn-ghost" onClick={pauseRecording}>
-                  {isPaused ? "Reprendre" : "Pause"}
-                </button>
-              )}
+              <button className="btn btn-ghost" onClick={pauseRecording}>
+                {isPaused ? "Reprendre" : "Pause"}
+              </button>
               <button className="btn btn-danger" onClick={stopRecording} style={{ flex: 2 }}>
                 Stop
               </button>
@@ -443,6 +556,14 @@ export default function App() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ─── LIVE PREVIEW (after stop, waiting for Groq) ─ */}
+        {!isRecording && livePreviewText && (
+          <div className="live-preview">
+            <label>Transcription live (en attente Groq...)</label>
+            <div className="transcript">{livePreviewText}</div>
           </div>
         )}
 
