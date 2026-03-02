@@ -85,6 +85,7 @@ async def list_sessions(
     status: Optional[str] = None,
     tag: Optional[str] = None,
     search: Optional[str] = None,
+    input_mode: Optional[str] = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -101,8 +102,23 @@ async def list_sessions(
             params["status"] = f"eq.{status}"
         if search:
             params["title"] = f"ilike.*{search}*"
+        if input_mode:
+            params["input_mode"] = f"eq.{input_mode}"
 
         async with httpx.AsyncClient() as client:
+            # If tag filter, first resolve session IDs from session_tags
+            if tag:
+                tag_resp = await client.get(
+                    f"{BASE_URL}/session_tags",
+                    headers=HEADERS,
+                    params={"tag_id": f"eq.{tag}", "select": "session_id"},
+                )
+                tag_resp.raise_for_status()
+                ids = [r["session_id"] for r in tag_resp.json()]
+                if not ids:
+                    return []
+                params["id"] = f"in.({','.join(ids)})"
+
             response = await client.get(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,

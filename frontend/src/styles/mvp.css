@@ -670,3 +670,65 @@ label {
   margin-left: 8px;
   vertical-align: middle;
 }
+
+/* Filter bar */
+.filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.filter-search {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.filter-search:focus {
+  border-color: var(--accent);
+}
+.filter-search::placeholder {
+  color: var(--text-soft);
+}
+.filter-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.filter-chip {
+  padding: 4px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.filter-chip:hover {
+  border-color: #444;
+  color: var(--text);
+}
+.filter-chip.active {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--accent);
+}
+
+/* Version footer */
+.version-footer {
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-soft);
+  opacity: 0.4;
+  padding: 16px 0 4px;
+  letter-spacing: 0.05em;
+}

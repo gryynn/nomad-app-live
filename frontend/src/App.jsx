@@ -106,16 +106,32 @@ export default function App() {
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
 
+  // Session filters
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterSearch, setFilterSearch] = useState("");
+  const [filterInputMode, setFilterInputMode] = useState("all");
+  const [filterTagId, setFilterTagId] = useState(null);
+  const filterSearchTimer = useRef(null);
+
   // ─── Load data ────────────────────────────────────
-  const loadSessions = useCallback(async () => {
+  const loadSessions = useCallback(async (filters = {}) => {
     try {
-      const data = await api.getSessions({ limit: 50 });
+      const params = { limit: 50 };
+      const st = filters.status ?? filterStatus;
+      const sm = filters.input_mode ?? filterInputMode;
+      const sq = filters.search ?? filterSearch;
+      const stag = filters.tag ?? filterTagId;
+      if (st && st !== "all") params.status = st;
+      if (sm && sm !== "all") params.input_mode = sm;
+      if (sq) params.search = sq;
+      if (stag) params.tag = stag;
+      const data = await api.getSessions(params);
       setSessions(data);
     } catch (e) {
       console.error("Failed to load sessions:", e);
       setError(`Sessions: ${e.message}`);
     }
-  }, []);
+  }, [filterStatus, filterInputMode, filterSearch, filterTagId]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -138,6 +154,20 @@ export default function App() {
   useEffect(() => {
     Promise.all([loadSessions(), loadTags(), loadEngines()]).finally(() => setLoading(false));
   }, [loadSessions, loadTags, loadEngines]);
+
+  // Reload sessions when filters change (debounce search)
+  useEffect(() => {
+    // Skip on initial mount (loading still true)
+    if (loading) return;
+    loadSessions();
+  }, [filterStatus, filterInputMode, filterTagId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (loading) return;
+    if (filterSearchTimer.current) clearTimeout(filterSearchTimer.current);
+    filterSearchTimer.current = setTimeout(() => loadSessions(), 400);
+    return () => clearTimeout(filterSearchTimer.current);
+  }, [filterSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-clear messages
   useEffect(() => {
@@ -192,7 +222,7 @@ export default function App() {
         animFrameRef.current = null;
       }
     };
-  }, [isRecording, isPaused, recMode]);
+  }, [isRecording, isPaused, recMode, captureOpen]);
 
   // Append new speech text to editable live transcript
   useEffect(() => {
@@ -402,6 +432,29 @@ export default function App() {
     }
   }
 
+  // ─── Auto-create tags that don't exist yet ─────────
+  async function ensureTagsExist(hashtags) {
+    if (!hashtags.length) return [];
+    let needRefresh = false;
+    const ids = [];
+    for (const ht of hashtags) {
+      const existing = tags.find((t) => t.name.toLowerCase() === ht);
+      if (existing) {
+        ids.push(existing.id);
+      } else {
+        try {
+          const created = await api.createTag({ name: ht, emoji: "🏷️" });
+          ids.push(created.id);
+          needRefresh = true;
+        } catch (e) {
+          console.error(`Failed to create tag "${ht}":`, e);
+        }
+      }
+    }
+    if (needRefresh) await loadTags();
+    return ids;
+  }
+
   // ─── Post-stop review: save session with all metadata ───
   function extractHashtags(text) {
     const matches = text.match(/#(\w+)/g);
@@ -471,14 +524,12 @@ export default function App() {
         await api.addNote(sessionId, recNotesText.trim());
       }
 
-      // 4. Extract tags from notes and apply to session
+      // 4. Extract tags from notes, auto-create missing ones, and apply to session
       const hashtags = extractHashtags(recNotesText);
       if (hashtags.length > 0) {
-        const matchingTagIds = tags
-          .filter((t) => hashtags.includes(t.name.toLowerCase()))
-          .map((t) => t.id);
-        if (matchingTagIds.length > 0) {
-          await api.setSessionTags(sessionId, matchingTagIds);
+        const tagIds = await ensureTagsExist(hashtags);
+        if (tagIds.length > 0) {
+          await api.setSessionTags(sessionId, tagIds);
         }
       }
 
@@ -641,13 +692,11 @@ export default function App() {
     if (!sessionNotesText.trim()) return;
     try {
       await api.addNote(sessionId, sessionNotesText.trim());
-      // Apply #tags from notes to session
+      // Apply #tags from notes to session, auto-create missing ones
       const hashtags = extractHashtags(sessionNotesText);
       if (hashtags.length > 0) {
         const sessionTagIds = (expandedSession.tags || []).map((t) => t.id);
-        const newTagIds = tags
-          .filter((t) => hashtags.includes(t.name.toLowerCase()))
-          .map((t) => t.id);
+        const newTagIds = await ensureTagsExist(hashtags);
         const mergedIds = [...new Set([...sessionTagIds, ...newTagIds])];
         if (mergedIds.length > sessionTagIds.length) {
           await api.setSessionTags(sessionId, mergedIds);
@@ -738,6 +787,9 @@ export default function App() {
                 <div style={{ textAlign: "center", marginBottom: 8 }}>
                   <span className={`status ${recMode === "live" ? "processing" : "recording"}`} style={{ fontSize: 12, padding: "4px 10px" }}>
                     {recMode === "live" ? "📡 LIVE" : "🎙️ REC"}
+                    {recMode === "live" && (
+                      <span style={{ marginLeft: 6, width: 6, height: 6, borderRadius: "50%", display: "inline-block", background: speech.isListening ? "var(--green)" : "var(--red)" }} />
+                    )}
                   </span>
                 </div>
 
@@ -765,6 +817,19 @@ export default function App() {
                     />
                     {speech.interimText && (
                       <div className="live-interim">{speech.interimText}...</div>
+                    )}
+                    {speech.error && (
+                      <div className="error-msg" style={{ fontSize: 12, padding: "6px 10px" }}>
+                        {speech.error}
+                      </div>
+                    )}
+                    {!speech.isListening && isRecording && !isPaused && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                        <span style={{ fontSize: 12, color: "var(--orange)" }}>Reconnaissance vocale inactive</span>
+                        <button className="btn btn-sm btn-ghost" onClick={() => speech.start("fr-FR")}>
+                          Relancer
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
@@ -850,38 +915,36 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="form-group">
-                  <label>Moteur de transcription</label>
-                  <div className="engine-row">
-                    {engines.filter((e) => e.status === "online").map((eng) => (
-                      <button
-                        key={eng.id}
-                        className={`engine-chip ${selectedEngine === eng.id ? "selected" : ""}`}
-                        onClick={() => setSelectedEngine(eng.id)}
-                      >
-                        {eng.id === "groq-turbo" ? "Groq" : eng.id === "groq-large" ? "Groq+" : eng.id === "deepgram" ? "DG" : "WYNONA"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <button
                     className="btn btn-primary"
                     onClick={() => handleSaveReview(false)}
                     disabled={reviewSaving}
-                    style={{ flex: 2 }}
+                    style={{ flex: 1 }}
                   >
                     {reviewSaving ? "Sauvegarde..." : "Sauvegarder"}
                   </button>
-                  <button
-                    className="btn btn-ghost"
-                    onClick={() => handleSaveReview(true)}
-                    disabled={reviewSaving}
-                    style={{ flex: 1 }}
-                  >
-                    Transcrire
-                  </button>
+                  <div className="transcribe-row">
+                    <select
+                      className="engine-select"
+                      value={selectedEngine}
+                      onChange={(e) => setSelectedEngine(e.target.value)}
+                    >
+                      {engines.filter((e) => e.status === "online").map((eng) => (
+                        <option key={eng.id} value={eng.id}>
+                          {eng.id === "groq-turbo" ? "Groq" : eng.id === "groq-large" ? "Groq+" : eng.id === "deepgram" ? "DG" : "WYNONA"}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => handleSaveReview(true)}
+                      disabled={reviewSaving}
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      Transcrire
+                    </button>
+                  </div>
                 </div>
                 <button
                   className="btn btn-ghost btn-sm"
@@ -1032,14 +1095,59 @@ export default function App() {
         <div className="section-title clickable" onClick={() => setSessionsOpen((v) => !v)}>
           <span className={`section-chevron ${sessionsOpen ? "open" : ""}`}>&#9656;</span>
           Mes sessions ({sessions.length})
+          {filterTagId && (
+            <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 4, textTransform: "none", letterSpacing: 0 }}>
+              filtre: {tags.find((t) => t.id === filterTagId)?.name || "tag"}
+              <span onClick={(e) => { e.stopPropagation(); setFilterTagId(null); }} style={{ cursor: "pointer", marginLeft: 2 }}>✕</span>
+            </span>
+          )}
         </div>
 
         {sessionsOpen && (
           <>
+            {/* Filter bar */}
+            <div className="filter-bar">
+              <input
+                className="filter-search"
+                type="text"
+                placeholder="Rechercher..."
+                value={filterSearch}
+                onChange={(e) => setFilterSearch(e.target.value)}
+              />
+              <div className="filter-chips">
+                {["all", "pending", "uploaded", "transcribed", "error"].map((st) => (
+                  <button
+                    key={st}
+                    className={`filter-chip ${filterStatus === st ? "active" : ""}`}
+                    onClick={() => setFilterStatus(st)}
+                  >
+                    {st === "all" ? "Tout" : st}
+                  </button>
+                ))}
+              </div>
+              <div className="filter-chips">
+                {[
+                  { val: "all", label: "Tous" },
+                  { val: "rec", label: "🎙️ rec" },
+                  { val: "live", label: "📡 live" },
+                  { val: "import", label: "📁 import" },
+                  { val: "paste", label: "📋 paste" },
+                ].map((m) => (
+                  <button
+                    key={m.val}
+                    className={`filter-chip ${filterInputMode === m.val ? "active" : ""}`}
+                    onClick={() => setFilterInputMode(m.val)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {loading && <div className="loading">Chargement...</div>}
 
             {!loading && sessions.length === 0 && (
-              <div className="empty">Aucune session. Utilisez Capture ci-dessus.</div>
+              <div className="empty">Aucune session{filterStatus !== "all" || filterSearch || filterInputMode !== "all" || filterTagId ? " pour ces filtres" : ". Utilisez Capture ci-dessus"}.</div>
             )}
 
             {sessions.map((s) => (
@@ -1191,7 +1299,7 @@ export default function App() {
         )}
       </div>
 
-      {/* ─── TAGS SECTION ────────────────────────── */}
+      {/* ─── TAGS SECTION ──────────────────────────── */}
       <div className="section">
         <div className="section-title clickable" onClick={() => setTagsOpen((v) => !v)}>
           <span className={`section-chevron ${tagsOpen ? "open" : ""}`}>&#9656;</span>
@@ -1201,7 +1309,18 @@ export default function App() {
           <>
             <div className="tags-row">
               {tags.map((tag) => (
-                <span key={tag.id} className="tag-chip">
+                <span
+                  key={tag.id}
+                  className={`tag-chip ${filterTagId === tag.id ? "selected" : ""}`}
+                  onClick={() => {
+                    if (filterTagId === tag.id) {
+                      setFilterTagId(null);
+                    } else {
+                      setFilterTagId(tag.id);
+                      setSessionsOpen(true);
+                    }
+                  }}
+                >
                   {tag.emoji} {tag.name}
                   {tag.session_count > 0 && <span style={{ fontSize: 10, color: "var(--text-soft)" }}> ({tag.session_count})</span>}
                 </span>
@@ -1213,6 +1332,9 @@ export default function App() {
           </>
         )}
       </div>
+
+      {/* ─── VERSION FOOTER ──────────────────────── */}
+      <div className="version-footer">v0.2.0</div>
     </div>
   );
 }
