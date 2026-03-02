@@ -59,7 +59,8 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [recTime, setRecTime] = useState(0);
-  const [recMarks, setRecMarks] = useState([]);
+  const [recNotes, setRecNotes] = useState([]);
+  const [recNoteInput, setRecNoteInput] = useState("");
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
@@ -81,6 +82,12 @@ export default function App() {
 
   // Speech recognition
   const speech = useSpeechRecognition();
+
+  // Section collapse states
+  const [captureOpen, setCaptureOpen] = useState(true);
+  const [notesOpen, setNotesOpen] = useState(true);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [tagsOpen, setTagsOpen] = useState(false);
 
   // ─── Load data ────────────────────────────────────
   const loadSessions = useCallback(async () => {
@@ -296,7 +303,8 @@ export default function App() {
       setIsRecording(true);
       setIsPaused(false);
       setRecTime(0);
-      setRecMarks([]);
+      setRecNotes([]);
+      setRecNoteInput("");
       startTimeRef.current = Date.now();
 
       timerRef.current = setInterval(() => {
@@ -360,8 +368,11 @@ export default function App() {
     }
   }
 
-  function addRecMark() {
-    setRecMarks((prev) => [...prev, { time: recTime, label: "" }]);
+  function addRecNote() {
+    const text = recNoteInput.trim();
+    const hashtags = (text.match(/#[\w\u00C0-\u024F]+/g) || []).map((t) => t.slice(1));
+    setRecNotes((prev) => [...prev, { time: recTime, text, hashtags }]);
+    setRecNoteInput("");
   }
 
   // ─── Session expand ─────────────────────────────
@@ -462,335 +473,401 @@ export default function App() {
 
       {/* ─── CAPTURE SECTION ─────────────────────── */}
       <div className="section">
-        <div className="section-title">Capture</div>
-
-        {/* Engine selector — always visible */}
-        {!isRecording && (
-          <div style={{ marginBottom: 12 }}>
-            <label>Moteur</label>
-            <div className="engine-row">
-              {engines.map((eng) => (
-                <button
-                  key={eng.id}
-                  className={`engine-chip ${selectedEngine === eng.id ? "selected" : ""} ${eng.status === "offline" ? "offline" : ""}`}
-                  onClick={() => eng.status === "online" && setSelectedEngine(eng.id)}
-                  title={`${eng.name} — ${eng.status} — $${eng.cost_per_hour}/h`}
-                >
-                  {eng.id === "groq-turbo" ? "Groq" : eng.id === "groq-large" ? "Groq+" : eng.id === "deepgram" ? "DG" : "WYNONA"}
-                  {eng.status === "offline" ? " ⛔" : ""}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Mode buttons — one click to capture */}
-        {!isRecording && mode === null && (
-          <div className="mode-bar">
-            <button className="mode-btn rec" onClick={() => startRecording("rec")}>
-              🎙️ REC
-            </button>
-            <button className="mode-btn" onClick={() => startRecording("live")}>
-              📡 LIVE
-            </button>
-            <button className="mode-btn" onClick={() => setMode("import")}>
-              📁 Import
-            </button>
-            <button className="mode-btn" onClick={() => setMode("paste")}>
-              📋 Paste
-            </button>
-          </div>
-        )}
-
-        {/* ─── RECORDING UI (REC or LIVE) ──────── */}
-        {isRecording && (
-          <div>
-            {/* Mode badge */}
-            <div style={{ textAlign: "center", marginBottom: 8 }}>
-              <span className={`status ${recMode === "live" ? "processing" : "recording"}`} style={{ fontSize: 12, padding: "4px 10px" }}>
-                {recMode === "live" ? "📡 LIVE" : "🎙️ REC"}
-              </span>
-            </div>
-
-            <div className="timer" style={{ color: isPaused ? "var(--orange)" : recMode === "live" ? "var(--accent)" : "var(--red)" }}>
-              {formatTimer(recTime)}
-            </div>
-
-            <div className="waveform">
-              <canvas
-                ref={canvasRef}
-                width={400}
-                height={60}
-                style={{ width: "100%", height: 60, opacity: isPaused ? 0.3 : 1, transition: "opacity 0.2s" }}
-              />
-            </div>
-            {isPaused && <div style={{ textAlign: "center", color: "var(--orange)", fontSize: 13, padding: "4px 0" }}>En pause</div>}
-
-            {recMode === "live" && (
-              <div className="live-transcript">
-                {speech.transcript && <span>{speech.transcript}</span>}
-                {speech.interimText && <span className="interim">{speech.interimText}</span>}
-                {!speech.transcript && !speech.interimText && (
-                  <span className="placeholder">En écoute... parlez maintenant</span>
-                )}
-                <span className="cursor">|</span>
-              </div>
-            )}
-
-            <div className="rec-controls">
-              <button className="btn btn-ghost" onClick={pauseRecording}>
-                {isPaused ? "Reprendre" : "Pause"}
-              </button>
-              <button className="btn btn-danger" onClick={stopRecording} style={{ flex: 2 }}>
-                Stop
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={addRecMark}>
-                + Mark
-              </button>
-            </div>
-
-            {recMarks.length > 0 && (
-              <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-soft)" }}>
-                {recMarks.map((m, i) => (
-                  <div key={i}>Mark {i + 1} — {formatTimer(m.time)}</div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ─── LIVE PREVIEW (after stop, waiting for Groq) ─ */}
-        {!isRecording && livePreviewText && (
-          <div className="live-preview">
-            <label>Transcription live (en attente Groq...)</label>
-            <div className="transcript">{livePreviewText}</div>
-          </div>
-        )}
-
-        {/* ─── PASTE MODE ──────────────────────── */}
-        {mode === "paste" && (
-          <div>
-            <div className="form-group">
-              <label>Titre (optionnel)</label>
-              <input
-                type="text"
-                placeholder="Ex: Notes réunion, idée projet..."
-                value={pasteTitle}
-                onChange={(e) => setPasteTitle(e.target.value)}
-              />
-            </div>
-            <div className="form-group">
-              <label>Texte</label>
-              <textarea
-                placeholder="Collez ou tapez votre texte ici..."
-                value={pasteText}
-                onChange={(e) => setPasteText(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                className="btn btn-primary"
-                onClick={handlePasteSave}
-                disabled={pasteSaving || !pasteText.trim()}
-                style={{ flex: 1 }}
-              >
-                {pasteSaving ? "Sauvegarde..." : "Sauvegarder"}
-              </button>
-              <button className="btn btn-ghost" onClick={() => { setMode(null); setPasteTitle(""); setPasteText(""); }}>
-                Annuler
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ─── IMPORT MODE ─────────────────────── */}
-        {mode === "import" && (
-          <div>
-            <div
-              className="file-drop"
-              onClick={() => document.getElementById("file-input").click()}
-            >
-              {importFile ? (
-                <span>{importFile.name} ({(importFile.size / 1024 / 1024).toFixed(1)} MB)</span>
-              ) : (
-                <span>Cliquez pour sélectionner un fichier audio<br />.wav .mp3 .m4a .webm .ogg</span>
-              )}
-              <input
-                id="file-input"
-                type="file"
-                accept=".wav,.mp3,.m4a,.webm,.ogg"
-                onChange={(e) => setImportFile(e.target.files[0] || null)}
-              />
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              {importFile && (
-                <button
-                  className="btn btn-primary"
-                  onClick={handleImportUpload}
-                  disabled={importUploading}
-                  style={{ flex: 1 }}
-                >
-                  {importUploading ? "Upload en cours..." : "Uploader"}
-                </button>
-              )}
-              <button className="btn btn-ghost" onClick={() => { setMode(null); setImportFile(null); }}>
-                Annuler
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ─── SESSIONS SECTION ────────────────────── */}
-      <div className="section">
-        <div className="section-title">
-          Mes sessions ({sessions.length})
+        <div className="section-title clickable" onClick={() => setCaptureOpen((v) => !v)}>
+          <span className={`section-chevron ${captureOpen ? "open" : ""}`}>&#9656;</span>
+          Capture
+          {isRecording && !captureOpen && (
+            <span className={`rec-badge ${recMode === "live" ? "live" : ""}`}>
+              <span className="rec-dot" /> {formatTimer(recTime)}
+            </span>
+          )}
         </div>
 
-        {loading && <div className="loading">Chargement...</div>}
-
-        {!loading && sessions.length === 0 && (
-          <div className="empty">Aucune session. Utilisez Capture ci-dessus.</div>
-        )}
-
-        {sessions.map((s) => (
-          <div key={s.id} className="session-item">
-            <div className="session-header" onClick={() => toggleExpand(s.id)}>
-              <span className="emoji">{inputModeEmoji(s.input_mode)}</span>
-              <div className="info">
-                <div className="title">{s.title || "(sans titre)"}</div>
-                <div className="meta">
-                  <span className={`status ${s.status}`}>{s.status}</span>
-                  {s.duration_seconds ? ` · ${formatDuration(s.duration_seconds)}` : ""}
-                  {s.transcript_words ? ` · ${s.transcript_words} mots` : ""}
-                  {" · "}{formatDate(s.created_at)}
+        {captureOpen && (
+          <>
+            {/* Engine selector */}
+            {!isRecording && (
+              <div style={{ marginBottom: 12 }}>
+                <label>Moteur</label>
+                <div className="engine-row">
+                  {engines.map((eng) => (
+                    <button
+                      key={eng.id}
+                      className={`engine-chip ${selectedEngine === eng.id ? "selected" : ""} ${eng.status === "offline" ? "offline" : ""}`}
+                      onClick={() => eng.status === "online" && setSelectedEngine(eng.id)}
+                      title={`${eng.name} — ${eng.status} — $${eng.cost_per_hour}/h`}
+                    >
+                      {eng.id === "groq-turbo" ? "Groq" : eng.id === "groq-large" ? "Groq+" : eng.id === "deepgram" ? "DG" : "WYNONA"}
+                      {eng.status === "offline" ? " ⛔" : ""}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <span className={`chevron ${expandedId === s.id ? "open" : ""}`}>&#9656;</span>
-            </div>
+            )}
 
-            {/* Expanded detail */}
-            {expandedId === s.id && expandedSession && (
-              <div className="session-detail">
-                {/* Transcript */}
-                {expandedSession.transcript ? (
-                  <div>
-                    <label>Transcription ({expandedSession.transcript_words} mots)</label>
-                    <div className="transcript">{expandedSession.transcript}</div>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 13, color: "var(--text-soft)", padding: "8px 0" }}>
-                    Pas de transcription.
-                    {s.audio_url && (
-                      <button
-                        className="btn btn-sm btn-primary"
-                        style={{ marginLeft: 8, width: "auto" }}
-                        onClick={() => handleTranscribe(s.id)}
-                      >
-                        Transcrire ({selectedEngine})
-                      </button>
+            {/* Mode buttons — one click to capture */}
+            {!isRecording && mode === null && (
+              <div className="mode-bar">
+                <button className="mode-btn rec" onClick={() => startRecording("rec")}>
+                  🎙️ REC
+                </button>
+                <button className="mode-btn" onClick={() => startRecording("live")}>
+                  📡 LIVE
+                </button>
+                <button className="mode-btn" onClick={() => setMode("import")}>
+                  📁 Import
+                </button>
+                <button className="mode-btn" onClick={() => setMode("paste")}>
+                  📋 Paste
+                </button>
+              </div>
+            )}
+
+            {/* ─── RECORDING UI (REC or LIVE) ──────── */}
+            {isRecording && (
+              <div>
+                {/* Mode badge */}
+                <div style={{ textAlign: "center", marginBottom: 8 }}>
+                  <span className={`status ${recMode === "live" ? "processing" : "recording"}`} style={{ fontSize: 12, padding: "4px 10px" }}>
+                    {recMode === "live" ? "📡 LIVE" : "🎙️ REC"}
+                  </span>
+                </div>
+
+                <div className="timer" style={{ color: isPaused ? "var(--orange)" : recMode === "live" ? "var(--accent)" : "var(--red)" }}>
+                  {formatTimer(recTime)}
+                </div>
+
+                <div className="waveform">
+                  <canvas
+                    ref={canvasRef}
+                    width={400}
+                    height={60}
+                    style={{ width: "100%", height: 60, opacity: isPaused ? 0.3 : 1, transition: "opacity 0.2s" }}
+                  />
+                </div>
+                {isPaused && <div style={{ textAlign: "center", color: "var(--orange)", fontSize: 13, padding: "4px 0" }}>En pause</div>}
+
+                {recMode === "live" && (
+                  <div className="live-transcript">
+                    {speech.transcript && <span>{speech.transcript}</span>}
+                    {speech.interimText && <span className="interim">{speech.interimText}</span>}
+                    {!speech.transcript && !speech.interimText && (
+                      <span className="placeholder">En écoute... parlez maintenant</span>
                     )}
+                    <span className="cursor">|</span>
                   </div>
                 )}
 
-                {/* Tags */}
-                <div style={{ marginTop: 12 }}>
-                  <label>Tags</label>
-                  <div className="tags-row">
-                    {tags.map((tag) => {
-                      const sessionTagIds = (expandedSession.tags || []).map((t) => t.id);
-                      return (
-                        <span
-                          key={tag.id}
-                          className={`tag-chip ${sessionTagIds.includes(tag.id) ? "selected" : ""}`}
-                          onClick={() => toggleSessionTag(s.id, tag.id, sessionTagIds)}
-                        >
-                          {tag.emoji} {tag.name}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Notes */}
-                <div style={{ marginTop: 12 }}>
-                  <label>Notes</label>
-                  {(expandedSession.notes || []).map((n) => (
-                    <div key={n.id} style={{ fontSize: 13, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
-                      {n.content}
-                      <span style={{ fontSize: 10, color: "var(--text-soft)", marginLeft: 8 }}>{formatDate(n.created_at)}</span>
-                    </div>
-                  ))}
-                  <div className="note-row">
-                    <input
-                      type="text"
-                      placeholder="Ajouter une note..."
-                      value={noteText}
-                      onChange={(e) => setNoteText(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleAddNote(s.id)}
-                    />
-                    <button className="btn btn-sm btn-ghost" onClick={() => handleAddNote(s.id)}>+</button>
-                  </div>
-                </div>
-
-                {/* Marks */}
-                {expandedSession.marks && expandedSession.marks.length > 0 && (
-                  <div style={{ marginTop: 12 }}>
-                    <label>Marks</label>
-                    {expandedSession.marks.map((m, i) => (
-                      <div key={i} style={{ fontSize: 12, color: "var(--text-soft)" }}>
-                        Mark @ {formatTimer(m.time)} {m.label && `— ${m.label}`}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Actions */}
-                <div className="actions">
-                  {expandedSession.transcript && (
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      onClick={() => { navigator.clipboard.writeText(expandedSession.transcript); setSuccess("Copié !"); }}
-                    >
-                      Copier
-                    </button>
-                  )}
-                  {s.audio_url && expandedSession.transcript && (
-                    <button className="btn btn-sm btn-ghost" onClick={() => handleTranscribe(s.id)}>
-                      Re-transcrire
-                    </button>
-                  )}
-                  <button className="btn btn-sm btn-danger" onClick={() => handleDelete(s.id)}>
-                    Supprimer
+                <div className="rec-controls">
+                  <button className="btn btn-ghost" onClick={pauseRecording}>
+                    {isPaused ? "Reprendre" : "Pause"}
+                  </button>
+                  <button className="btn btn-danger" onClick={stopRecording} style={{ flex: 2 }}>
+                    Stop
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Loading state for expansion */}
-            {expandedId === s.id && !expandedSession && (
-              <div className="session-detail">
-                <div className="loading">Chargement...</div>
+            {/* ─── LIVE PREVIEW (after stop, waiting for Groq) ─ */}
+            {!isRecording && livePreviewText && (
+              <div className="live-preview">
+                <label>Transcription live (en attente Groq...)</label>
+                <div className="transcript">{livePreviewText}</div>
               </div>
             )}
+
+            {/* ─── PASTE MODE ──────────────────────── */}
+            {mode === "paste" && (
+              <div>
+                <div className="form-group">
+                  <label>Titre (optionnel)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Notes réunion, idée projet..."
+                    value={pasteTitle}
+                    onChange={(e) => setPasteTitle(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Texte</label>
+                  <textarea
+                    placeholder="Collez ou tapez votre texte ici..."
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handlePasteSave}
+                    disabled={pasteSaving || !pasteText.trim()}
+                    style={{ flex: 1 }}
+                  >
+                    {pasteSaving ? "Sauvegarde..." : "Sauvegarder"}
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => { setMode(null); setPasteTitle(""); setPasteText(""); }}>
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ─── IMPORT MODE ─────────────────────── */}
+            {mode === "import" && (
+              <div>
+                <div
+                  className="file-drop"
+                  onClick={() => document.getElementById("file-input").click()}
+                >
+                  {importFile ? (
+                    <span>{importFile.name} ({(importFile.size / 1024 / 1024).toFixed(1)} MB)</span>
+                  ) : (
+                    <span>Cliquez pour sélectionner un fichier audio<br />.wav .mp3 .m4a .webm .ogg</span>
+                  )}
+                  <input
+                    id="file-input"
+                    type="file"
+                    accept=".wav,.mp3,.m4a,.webm,.ogg"
+                    onChange={(e) => setImportFile(e.target.files[0] || null)}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                  {importFile && (
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleImportUpload}
+                      disabled={importUploading}
+                      style={{ flex: 1 }}
+                    >
+                      {importUploading ? "Upload en cours..." : "Uploader"}
+                    </button>
+                  )}
+                  <button className="btn btn-ghost" onClick={() => { setMode(null); setImportFile(null); }}>
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ─── SESSION NOTES (during recording) ──────── */}
+      {isRecording && (
+        <div className="section">
+          <div className="section-title clickable" onClick={() => setNotesOpen((v) => !v)}>
+            <span className={`section-chevron ${notesOpen ? "open" : ""}`}>&#9656;</span>
+            Notes de session {recNotes.length > 0 && `(${recNotes.length})`}
           </div>
-        ))}
+
+          {notesOpen && (
+            <>
+              <div className="rec-note-input">
+                <input
+                  type="text"
+                  placeholder="Note ou #tag... (Entrée pour ajouter)"
+                  value={recNoteInput}
+                  onChange={(e) => setRecNoteInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addRecNote()}
+                />
+                <button className="btn btn-sm btn-ghost" onClick={addRecNote}>
+                  + Note
+                </button>
+              </div>
+
+              {recNotes.length === 0 && (
+                <div className="empty" style={{ padding: "12px 0" }}>
+                  Ajoutez des notes, marks ou #tags pendant l'enregistrement
+                </div>
+              )}
+
+              {recNotes.map((n, i) => (
+                <div key={i} className="rec-note-item">
+                  <span className="rec-note-time">{formatTimer(n.time)}</span>
+                  <div className="rec-note-body">
+                    {n.text ? (
+                      <span>{n.text.replace(/#[\w\u00C0-\u024F]+/g, "").trim() || "mark"}</span>
+                    ) : (
+                      <span className="rec-note-mark">mark</span>
+                    )}
+                    {n.hashtags.length > 0 && (
+                      <span className="rec-note-tags">
+                        {n.hashtags.map((t, j) => (
+                          <span key={j} className="hashtag">#{t}</span>
+                        ))}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ─── SESSIONS SECTION ────────────────────── */}
+      <div className="section">
+        <div className="section-title clickable" onClick={() => setSessionsOpen((v) => !v)}>
+          <span className={`section-chevron ${sessionsOpen ? "open" : ""}`}>&#9656;</span>
+          Mes sessions ({sessions.length})
+        </div>
+
+        {sessionsOpen && (
+          <>
+            {loading && <div className="loading">Chargement...</div>}
+
+            {!loading && sessions.length === 0 && (
+              <div className="empty">Aucune session. Utilisez Capture ci-dessus.</div>
+            )}
+
+            {sessions.map((s) => (
+              <div key={s.id} className="session-item">
+                <div className="session-header" onClick={() => toggleExpand(s.id)}>
+                  <span className="emoji">{inputModeEmoji(s.input_mode)}</span>
+                  <div className="info">
+                    <div className="title">{s.title || "(sans titre)"}</div>
+                    <div className="meta">
+                      <span className={`status ${s.status}`}>{s.status}</span>
+                      {s.duration_seconds ? ` · ${formatDuration(s.duration_seconds)}` : ""}
+                      {s.transcript_words ? ` · ${s.transcript_words} mots` : ""}
+                      {" · "}{formatDate(s.created_at)}
+                    </div>
+                  </div>
+                  <span className={`chevron ${expandedId === s.id ? "open" : ""}`}>&#9656;</span>
+                </div>
+
+                {/* Expanded detail */}
+                {expandedId === s.id && expandedSession && (
+                  <div className="session-detail">
+                    {/* Transcript */}
+                    {expandedSession.transcript ? (
+                      <div>
+                        <label>Transcription ({expandedSession.transcript_words} mots)</label>
+                        <div className="transcript">{expandedSession.transcript}</div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13, color: "var(--text-soft)", padding: "8px 0" }}>
+                        Pas de transcription.
+                        {s.audio_url && (
+                          <button
+                            className="btn btn-sm btn-primary"
+                            style={{ marginLeft: 8, width: "auto" }}
+                            onClick={() => handleTranscribe(s.id)}
+                          >
+                            Transcrire ({selectedEngine})
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Tags */}
+                    <div style={{ marginTop: 12 }}>
+                      <label>Tags</label>
+                      <div className="tags-row">
+                        {tags.map((tag) => {
+                          const sessionTagIds = (expandedSession.tags || []).map((t) => t.id);
+                          return (
+                            <span
+                              key={tag.id}
+                              className={`tag-chip ${sessionTagIds.includes(tag.id) ? "selected" : ""}`}
+                              onClick={() => toggleSessionTag(s.id, tag.id, sessionTagIds)}
+                            >
+                              {tag.emoji} {tag.name}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    <div style={{ marginTop: 12 }}>
+                      <label>Notes</label>
+                      {(expandedSession.notes || []).map((n) => (
+                        <div key={n.id} style={{ fontSize: 13, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+                          {n.content}
+                          <span style={{ fontSize: 10, color: "var(--text-soft)", marginLeft: 8 }}>{formatDate(n.created_at)}</span>
+                        </div>
+                      ))}
+                      <div className="note-row">
+                        <input
+                          type="text"
+                          placeholder="Ajouter une note..."
+                          value={noteText}
+                          onChange={(e) => setNoteText(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleAddNote(s.id)}
+                        />
+                        <button className="btn btn-sm btn-ghost" onClick={() => handleAddNote(s.id)}>+</button>
+                      </div>
+                    </div>
+
+                    {/* Marks */}
+                    {expandedSession.marks && expandedSession.marks.length > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <label>Marks</label>
+                        {expandedSession.marks.map((m, i) => (
+                          <div key={i} style={{ fontSize: 12, color: "var(--text-soft)" }}>
+                            Mark @ {formatTimer(m.time)} {m.label && `— ${m.label}`}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="actions">
+                      {expandedSession.transcript && (
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => { navigator.clipboard.writeText(expandedSession.transcript); setSuccess("Copié !"); }}
+                        >
+                          Copier
+                        </button>
+                      )}
+                      {s.audio_url && expandedSession.transcript && (
+                        <button className="btn btn-sm btn-ghost" onClick={() => handleTranscribe(s.id)}>
+                          Re-transcrire
+                        </button>
+                      )}
+                      <button className="btn btn-sm btn-danger" onClick={() => handleDelete(s.id)}>
+                        Supprimer
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Loading state for expansion */}
+                {expandedId === s.id && !expandedSession && (
+                  <div className="session-detail">
+                    <div className="loading">Chargement...</div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </>
+        )}
       </div>
 
       {/* ─── TAGS SECTION ────────────────────────── */}
       <div className="section">
-        <div className="section-title">Tags ({tags.length})</div>
-        <div className="tags-row">
-          {tags.map((tag) => (
-            <span key={tag.id} className="tag-chip">
-              {tag.emoji} {tag.name}
-              {tag.session_count > 0 && <span style={{ fontSize: 10, color: "var(--text-soft)" }}> ({tag.session_count})</span>}
-            </span>
-          ))}
+        <div className="section-title clickable" onClick={() => setTagsOpen((v) => !v)}>
+          <span className={`section-chevron ${tagsOpen ? "open" : ""}`}>&#9656;</span>
+          Tags ({tags.length})
         </div>
-        {tags.length === 0 && !loading && (
-          <div className="empty">Aucun tag.</div>
+        {tagsOpen && (
+          <>
+            <div className="tags-row">
+              {tags.map((tag) => (
+                <span key={tag.id} className="tag-chip">
+                  {tag.emoji} {tag.name}
+                  {tag.session_count > 0 && <span style={{ fontSize: 10, color: "var(--text-soft)" }}> ({tag.session_count})</span>}
+                </span>
+              ))}
+            </div>
+            {tags.length === 0 && !loading && (
+              <div className="empty">Aucun tag.</div>
+            )}
+          </>
         )}
       </div>
     </div>

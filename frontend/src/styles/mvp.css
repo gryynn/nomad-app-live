@@ -69,6 +69,42 @@ html, body {
   margin-bottom: 12px;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.section-title.clickable {
+  cursor: pointer;
+  user-select: none;
+}
+.section-title.clickable:hover { color: var(--text); }
+.section-chevron {
+  font-size: 10px;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.section-chevron.open { transform: rotate(90deg); }
+
+/* Recording badge (collapsed capture during recording) */
+.rec-badge {
+  margin-left: auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, monospace;
+  color: var(--red);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.rec-badge.live { color: var(--accent); }
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.5s ease-in-out infinite;
 }
 
 /* Mode buttons */
@@ -462,3 +498,48 @@ label {
   margin-top: 8px;
 }
 .note-row input { flex: 1; }
+
+/* Recording notes section */
+.rec-note-input {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rec-note-input input { flex: 1; }
+.rec-note-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.rec-note-time {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--text-soft);
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.rec-note-body {
+  flex: 1;
+  min-width: 0;
+}
+.rec-note-mark {
+  color: var(--text-soft);
+  font-style: italic;
+}
+.rec-note-tags {
+  display: inline;
+  margin-left: 6px;
+}
+.hashtag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
