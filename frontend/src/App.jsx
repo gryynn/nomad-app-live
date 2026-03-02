@@ -304,6 +304,18 @@ export default function App() {
     // captureMode: "rec" or "live"
     setError(null);
     try {
+      // For LIVE mode: start speech recognition FIRST, then get stream for recording.
+      // The Speech API needs its own mic access before getUserMedia locks it.
+      if (captureMode === "live") {
+        speech.start("fr-FR");
+        setLivePreviewText("");
+        setLiveEditText("");
+        lastSpeechLenRef.current = 0;
+        // Small delay to let speech API grab the mic
+        await new Promise((r) => setTimeout(r, 300));
+        console.log("[REC] speech started, isListening:", speech.isListening);
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       console.log("[REC] getUserMedia OK, tracks:", stream.getAudioTracks().length);
 
@@ -331,7 +343,6 @@ export default function App() {
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
           chunksRef.current.push(e.data);
-          console.log("[REC] chunk:", e.data.size, "bytes, total chunks:", chunksRef.current.length);
         }
       };
 
@@ -367,14 +378,6 @@ export default function App() {
       timerRef.current = setInterval(() => {
         setRecTime(Date.now() - startTimeRef.current);
       }, 100);
-
-      // Start speech recognition AFTER MediaRecorder for LIVE mode
-      if (captureMode === "live") {
-        speech.start("fr-FR");
-        setLivePreviewText("");
-        setLiveEditText("");
-        lastSpeechLenRef.current = 0;
-      }
     } catch (e) {
       console.error("[REC] startRecording failed:", e);
       setError(`Micro non accessible: ${e.message}`);
@@ -653,6 +656,8 @@ export default function App() {
         const detail = await api.getSession(sessionId);
         if (detail.transcript) {
           setExpandedSession(detail);
+          setEditingTranscript(detail.transcript);
+          setTranscriptDirty(false);
           setSuccess(`Transcription terminée (${detail.transcript_words} mots)`);
         } else {
           setTimeout(() => poll(attempts + 1), 5000);
@@ -1285,10 +1290,10 @@ export default function App() {
                     {/* Transcript */}
                     {expandedSession.transcript ? (
                       <div>
-                        <label>Transcription ({editingTranscript.trim().split(/\s+/).filter(Boolean).length} mots)</label>
+                        <label>Transcription ({(editingTranscript || expandedSession.transcript).trim().split(/\s+/).filter(Boolean).length} mots)</label>
                         <textarea
                           className="transcript-edit"
-                          value={editingTranscript}
+                          value={editingTranscript || expandedSession.transcript}
                           onChange={(e) => { setEditingTranscript(e.target.value); setTranscriptDirty(true); }}
                         />
                         {transcriptDirty && (
@@ -1396,7 +1401,7 @@ export default function App() {
                       {expandedSession.transcript && (
                         <button
                           className="btn btn-sm btn-ghost"
-                          onClick={() => { navigator.clipboard.writeText(editingTranscript || expandedSession.transcript); setSuccess("Copié !"); }}
+                          onClick={() => { navigator.clipboard.writeText((editingTranscript || expandedSession.transcript) ?? ""); setSuccess("Copié !"); }}
                         >
                           Copier
                         </button>
@@ -1458,7 +1463,7 @@ export default function App() {
       </div>
 
       {/* ─── VERSION FOOTER ──────────────────────── */}
-      <div className="version-footer">v0.3.2</div>
+      <div className="version-footer">v0.3.3</div>
     </div>
   );
 }
