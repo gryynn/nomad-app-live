@@ -59,8 +59,7 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [recTime, setRecTime] = useState(0);
-  const [recNotes, setRecNotes] = useState([]);
-  const [recNoteInput, setRecNoteInput] = useState("");
+  const [recNotesText, setRecNotesText] = useState("");
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
@@ -70,6 +69,8 @@ export default function App() {
   const analyserRef = useRef(null);
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
+  const recNotesRef = useRef(null);
+  const cancelledRef = useRef(false);
 
   // Engine selection
   const [selectedEngine, setSelectedEngine] = useState("groq-turbo");
@@ -80,6 +81,8 @@ export default function App() {
   // Live transcription preview + post-stop choice
   const [livePreviewText, setLivePreviewText] = useState("");
   const [liveSessionId, setLiveSessionId] = useState(null);
+  const [liveEditText, setLiveEditText] = useState("");
+  const lastSpeechLenRef = useRef(0);
 
   // Speech recognition
   const speech = useSpeechRecognition();
@@ -178,6 +181,17 @@ export default function App() {
     };
   }, [isRecording, isPaused, recMode]);
 
+  // Append new speech text to editable live transcript
+  useEffect(() => {
+    if (!isRecording || recMode !== "live") return;
+    const full = speech.transcript || "";
+    if (full.length > lastSpeechLenRef.current) {
+      const delta = full.slice(lastSpeechLenRef.current);
+      setLiveEditText((prev) => prev + delta);
+      lastSpeechLenRef.current = full.length;
+    }
+  }, [speech.transcript, isRecording, recMode]);
+
   // ─── Flow A: Paste ──────────────────────────────
   async function handlePasteSave() {
     if (!pasteText.trim()) { setError("Le texte est vide"); return; }
@@ -249,6 +263,12 @@ export default function App() {
 
       recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
+        if (cancelledRef.current) {
+          cancelledRef.current = false;
+          setRecMode(null);
+          setMode(null);
+          return;
+        }
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         const durationSec = Math.round((Date.now() - startTimeRef.current) / 1000);
         console.log(`Recording stopped: ${blob.size} bytes, ${durationSec}s, mode=${captureMode}`);
@@ -281,8 +301,8 @@ export default function App() {
       setIsRecording(true);
       setIsPaused(false);
       setRecTime(0);
-      setRecNotes([]);
-      setRecNoteInput("");
+      setRecNotesText("");
+      cancelledRef.current = false;
       startTimeRef.current = Date.now();
 
       timerRef.current = setInterval(() => {
@@ -293,6 +313,8 @@ export default function App() {
       if (captureMode === "live") {
         speech.start("fr-FR");
         setLivePreviewText("");
+        setLiveEditText("");
+        lastSpeechLenRef.current = 0;
       }
     } catch (e) {
       setError(`Micro non accessible: ${e.message}`);
@@ -335,9 +357,9 @@ export default function App() {
         audioCtxRef.current = null;
         analyserRef.current = null;
       }
-      // Save live transcript before stopping speech
-      if (recMode === "live" && speech.transcript) {
-        setLivePreviewText(speech.transcript.trim());
+      // Save edited live transcript before stopping speech
+      if (recMode === "live" && liveEditText) {
+        setLivePreviewText(liveEditText.trim());
       }
       speech.stop();
       mediaRecorderRef.current.stop();
@@ -346,11 +368,40 @@ export default function App() {
     }
   }
 
-  function addRecNote() {
-    const text = recNoteInput.trim();
-    const hashtags = (text.match(/#[\w\u00C0-\u024F]+/g) || []).map((t) => t.slice(1));
-    setRecNotes((prev) => [...prev, { time: recTime, text, hashtags }]);
-    setRecNoteInput("");
+  function insertMark() {
+    const ta = recNotesRef.current;
+    if (!ta) return;
+    const stamp = `[${formatTimer(recTime)}] `;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const newText = recNotesText.substring(0, start) + stamp + recNotesText.substring(end);
+    setRecNotesText(newText);
+    setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + stamp.length; ta.focus(); }, 0);
+  }
+
+  function insertTag(tagName) {
+    const ta = recNotesRef.current;
+    if (!ta) return;
+    const hashtag = `#${tagName} `;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const newText = recNotesText.substring(0, start) + hashtag + recNotesText.substring(end);
+    setRecNotesText(newText);
+    setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + hashtag.length; ta.focus(); }, 0);
+  }
+
+  function cancelRecording() {
+    if (mediaRecorderRef.current) {
+      cancelledRef.current = true;
+      clearInterval(timerRef.current);
+      if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
+      if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; analyserRef.current = null; }
+      speech.stop();
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      setIsPaused(false);
+      setSuccess("Enregistrement annulé");
+    }
   }
 
   // ─── LIVE post-stop: keep free transcript or upgrade with Groq
@@ -573,13 +624,16 @@ export default function App() {
                 {isPaused && <div style={{ textAlign: "center", color: "var(--orange)", fontSize: 13, padding: "4px 0" }}>En pause</div>}
 
                 {recMode === "live" && (
-                  <div className="live-transcript">
-                    {speech.transcript && <span>{speech.transcript}</span>}
-                    {speech.interimText && <span className="interim">{speech.interimText}</span>}
-                    {!speech.transcript && !speech.interimText && (
-                      <span className="placeholder">En écoute... parlez maintenant</span>
+                  <div>
+                    <textarea
+                      className="live-edit-textarea"
+                      placeholder="La transcription apparaît ici... vous pouvez aussi éditer le texte"
+                      value={liveEditText}
+                      onChange={(e) => setLiveEditText(e.target.value)}
+                    />
+                    {speech.interimText && (
+                      <div className="live-interim">{speech.interimText}...</div>
                     )}
-                    <span className="cursor">|</span>
                   </div>
                 )}
 
@@ -589,6 +643,9 @@ export default function App() {
                   </button>
                   <button className="btn btn-danger" onClick={stopRecording} style={{ flex: 2 }}>
                     Stop
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={cancelRecording}>
+                    Annuler
                   </button>
                 </div>
               </div>
@@ -694,49 +751,32 @@ export default function App() {
         <div className="section">
           <div className="section-title clickable" onClick={() => setNotesOpen((v) => !v)}>
             <span className={`section-chevron ${notesOpen ? "open" : ""}`}>&#9656;</span>
-            Notes de session {recNotes.length > 0 && `(${recNotes.length})`}
+            Notes de session
           </div>
 
           {notesOpen && (
             <>
-              <div className="rec-note-input">
-                <input
-                  type="text"
-                  placeholder="Note ou #tag... (Entrée pour ajouter)"
-                  value={recNoteInput}
-                  onChange={(e) => setRecNoteInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addRecNote()}
-                />
-                <button className="btn btn-sm btn-ghost" onClick={addRecNote}>
-                  + Note
+              <textarea
+                ref={recNotesRef}
+                className="rec-notes-textarea"
+                placeholder="Notes libres... utilisez Mark pour insérer un timestamp, ou tapez #tag"
+                value={recNotesText}
+                onChange={(e) => setRecNotesText(e.target.value)}
+              />
+              <div className="rec-notes-bar">
+                <button className="btn btn-sm btn-ghost" onClick={insertMark}>
+                  Mark ⏱
                 </button>
-              </div>
-
-              {recNotes.length === 0 && (
-                <div className="empty" style={{ padding: "12px 0" }}>
-                  Ajoutez des notes, marks ou #tags pendant l'enregistrement
-                </div>
-              )}
-
-              {recNotes.map((n, i) => (
-                <div key={i} className="rec-note-item">
-                  <span className="rec-note-time">{formatTimer(n.time)}</span>
-                  <div className="rec-note-body">
-                    {n.text ? (
-                      <span>{n.text.replace(/#[\w\u00C0-\u024F]+/g, "").trim() || "mark"}</span>
-                    ) : (
-                      <span className="rec-note-mark">mark</span>
-                    )}
-                    {n.hashtags.length > 0 && (
-                      <span className="rec-note-tags">
-                        {n.hashtags.map((t, j) => (
-                          <span key={j} className="hashtag">#{t}</span>
-                        ))}
+                {tags.length > 0 && (
+                  <div className="tags-shortcuts">
+                    {tags.map((tag) => (
+                      <span key={tag.id} className="tag-shortcut" onClick={() => insertTag(tag.name)}>
+                        {tag.emoji} {tag.name}
                       </span>
-                    )}
+                    ))}
                   </div>
-                </div>
-              ))}
+                )}
+              </div>
             </>
           )}
         </div>
@@ -786,13 +826,26 @@ export default function App() {
                       <div style={{ fontSize: 13, color: "var(--text-soft)", padding: "8px 0" }}>
                         Pas de transcription.
                         {s.audio_url && (
-                          <button
-                            className="btn btn-sm btn-primary"
-                            style={{ marginLeft: 8, width: "auto" }}
-                            onClick={() => handleTranscribe(s.id)}
-                          >
-                            Transcrire ({selectedEngine})
-                          </button>
+                          <div className="transcribe-row">
+                            <select
+                              className="engine-select"
+                              value={selectedEngine}
+                              onChange={(e) => setSelectedEngine(e.target.value)}
+                            >
+                              {engines.filter((e) => e.status === "online").map((eng) => (
+                                <option key={eng.id} value={eng.id}>
+                                  {eng.name} — ${eng.cost_per_hour}/h
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="btn btn-sm btn-primary"
+                              style={{ width: "auto", whiteSpace: "nowrap" }}
+                              onClick={() => handleTranscribe(s.id)}
+                            >
+                              Transcrire
+                            </button>
+                          </div>
                         )}
                       </div>
                     )}

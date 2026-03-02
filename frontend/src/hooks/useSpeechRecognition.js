@@ -9,6 +9,7 @@ export default function useSpeechRecognition() {
   const recognitionRef = useRef(null);
   const stoppingRef = useRef(false);
   const accumulatedRef = useRef("");
+  const transcriptRef = useRef(""); // mirrors transcript state for safe pause capture
   const langRef = useRef("fr-FR");
 
   const isSupported =
@@ -34,7 +35,9 @@ export default function useSpeechRecognition() {
           interim += e.results[i][0].transcript;
         }
       }
-      setTranscript(accumulatedRef.current + sessionFinal);
+      const full = accumulatedRef.current + sessionFinal;
+      transcriptRef.current = full;
+      setTranscript(full);
       setInterimText(interim);
     };
 
@@ -72,6 +75,7 @@ export default function useSpeechRecognition() {
     stoppingRef.current = false;
     langRef.current = lang;
     accumulatedRef.current = "";
+    transcriptRef.current = "";
     setTranscript("");
     setInterimText("");
     setError(null);
@@ -96,6 +100,8 @@ export default function useSpeechRecognition() {
   }
 
   function pause() {
+    // Capture current transcript BEFORE aborting to prevent data loss
+    accumulatedRef.current = transcriptRef.current;
     stoppingRef.current = true;
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch (_) { /* ignore */ }
@@ -124,6 +130,7 @@ export default function useSpeechRecognition() {
     setInterimText("");
     setError(null);
     accumulatedRef.current = "";
+    transcriptRef.current = "";
   }
 
   return { isSupported, isListening, transcript, interimText, error, start, stop, pause, resume, reset };

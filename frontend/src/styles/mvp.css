@@ -548,3 +548,115 @@ label {
   border-radius: 4px;
   margin-left: 4px;
 }
+
+/* Live editable transcript textarea */
+.live-edit-textarea {
+  width: 100%;
+  min-height: 100px;
+  max-height: 200px;
+  padding: 12px;
+  margin: 8px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.live-edit-textarea:focus {
+  border-color: var(--accent);
+}
+
+/* Live interim text (partial speech) */
+.live-interim {
+  padding: 4px 12px;
+  font-size: 13px;
+  color: var(--text-soft);
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* Free-form recording notes textarea */
+.rec-notes-textarea {
+  width: 100%;
+  min-height: 80px;
+  max-height: 200px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.rec-notes-textarea:focus {
+  border-color: var(--accent);
+}
+
+/* Notes toolbar (Mark button + tag shortcuts) */
+.rec-notes-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+/* Tag shortcuts row */
+.tags-shortcuts {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.tag-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+.tag-shortcut:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Engine select in session detail */
+.engine-select {
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  min-width: 0;
+  flex: 1;
+}
+.engine-select:focus {
+  border-color: var(--accent);
+}
+
+/* Transcribe row (select + button) */
+.transcribe-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
