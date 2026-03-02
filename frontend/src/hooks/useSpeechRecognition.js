@@ -37,18 +37,20 @@ export default function useSpeechRecognition() {
       }
       const full = accumulatedRef.current + sessionFinal;
       transcriptRef.current = full;
+      console.log("[Speech] onresult:", { final: sessionFinal.length, interim: interim.length, total: full.length });
       setTranscript(full);
       setInterimText(interim);
     };
 
     rec.onerror = (e) => {
+      console.warn("[Speech] onerror:", e.error);
       if (e.error !== "no-speech" && e.error !== "aborted") {
-        console.warn("SpeechRecognition error:", e.error);
         setError(e.error);
       }
     };
 
     rec.onend = () => {
+      console.log("[Speech] onend, stopping:", stoppingRef.current, "accumulated:", accumulatedRef.current.length);
       accumulatedRef.current += sessionFinal;
       sessionFinal = "";
       if (!stoppingRef.current) {
@@ -56,7 +58,9 @@ export default function useSpeechRecognition() {
           const next = makeRecognition();
           next.start();
           recognitionRef.current = next;
-        } catch (_) {
+          console.log("[Speech] auto-restarted");
+        } catch (err) {
+          console.warn("[Speech] auto-restart failed:", err);
           setIsListening(false);
         }
       } else {
@@ -69,7 +73,8 @@ export default function useSpeechRecognition() {
 
   function start(lang = "fr-FR") {
     if (!isSupported) {
-      setError("Web Speech API non supportée");
+      console.warn("[Speech] API not supported in this browser");
+      setError("Web Speech API non supportée — utilisez Chrome");
       return;
     }
     stoppingRef.current = false;
@@ -84,7 +89,9 @@ export default function useSpeechRecognition() {
       rec.start();
       recognitionRef.current = rec;
       setIsListening(true);
+      console.log("[Speech] started, lang:", lang);
     } catch (e) {
+      console.error("[Speech] start failed:", e);
       setError(e.message);
     }
   }

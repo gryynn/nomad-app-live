@@ -246,12 +246,14 @@ export default function App() {
   useEffect(() => {
     if (!isRecording || recMode !== "live") return;
     const full = speech.transcript || "";
+    console.log("[LIVE] speech.transcript changed:", { len: full.length, lastLen: lastSpeechLenRef.current, listening: speech.isListening, interim: speech.interimText?.length || 0 });
     if (full.length > lastSpeechLenRef.current) {
       const delta = full.slice(lastSpeechLenRef.current);
+      console.log("[LIVE] Appending delta:", delta);
       setLiveEditText((prev) => prev + delta);
       lastSpeechLenRef.current = full.length;
     }
-  }, [speech.transcript, isRecording, recMode]);
+  }, [speech.transcript, isRecording, recMode, speech.isListening, speech.interimText]);
 
   // ─── Flow A: Paste ──────────────────────────────
   async function handlePasteSave() {
@@ -857,6 +859,19 @@ export default function App() {
 
                 {recMode === "live" && (
                   <div>
+                    {/* Status line */}
+                    <div style={{ fontSize: 11, color: "var(--text-soft)", padding: "2px 0 6px", display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ color: speech.isListening ? "var(--green)" : "var(--red)" }}>
+                        {speech.isListening ? "Écoute active" : speech.isSupported ? "Inactif" : "API non supportée"}
+                      </span>
+                      {speech.isListening && !liveEditText && !speech.interimText && (
+                        <span style={{ color: "var(--text-soft)", fontStyle: "italic" }}>Parlez...</span>
+                      )}
+                      {liveEditText && (
+                        <span>{liveEditText.trim().split(/\s+/).filter(Boolean).length} mots</span>
+                      )}
+                    </div>
+
                     <textarea
                       className="live-edit-textarea"
                       placeholder="La transcription apparaît ici... vous pouvez aussi éditer le texte"
@@ -868,15 +883,20 @@ export default function App() {
                     )}
                     {speech.error && (
                       <div className="error-msg" style={{ fontSize: 12, padding: "6px 10px" }}>
-                        {speech.error}
+                        Erreur: {speech.error}
+                        {!speech.isSupported && " — Ce navigateur ne supporte pas la reconnaissance vocale (utilisez Chrome)"}
                       </div>
                     )}
                     {!speech.isListening && isRecording && !isPaused && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                        <span style={{ fontSize: 12, color: "var(--orange)" }}>Reconnaissance vocale inactive</span>
-                        <button className="btn btn-sm btn-ghost" onClick={() => speech.start("fr-FR")}>
-                          Relancer
-                        </button>
+                        <span style={{ fontSize: 12, color: "var(--orange)" }}>
+                          {speech.isSupported ? "Reconnaissance vocale inactive" : "Non supporté sur ce navigateur"}
+                        </span>
+                        {speech.isSupported && (
+                          <button className="btn btn-sm btn-ghost" onClick={() => speech.start("fr-FR")}>
+                            Relancer
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
