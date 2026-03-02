@@ -1542,71 +1542,19 @@ export default function App() {
                 <div className="session-header" onClick={() => toggleExpand(s.id)}>
                   <span className="emoji">{inputModeEmoji(s.input_mode)}</span>
                   <div className="info">
-                    <div className="title-row">
-                      {editingTitleId === s.id ? (
-                        <input
-                          className="title-edit-input"
-                          autoFocus
-                          value={editingTitleValue}
-                          onChange={(e) => setEditingTitleValue(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter") handleSaveTitle(s.id); if (e.key === "Escape") setEditingTitleId(null); }}
-                          onBlur={() => handleSaveTitle(s.id)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      ) : (
-                        <div className="title" onDoubleClick={(e) => { e.stopPropagation(); setEditingTitleId(s.id); setEditingTitleValue(s.title || ""); }}>
-                          {s.title || "(sans titre)"}
-                        </div>
-                      )}
-                    </div>
-                    {/* Inline tags */}
-                    {(s.tags?.length > 0 || expandedId === s.id) && (
-                      <div className="session-inline-tags" onClick={(e) => e.stopPropagation()}>
-                        {(s.tags || []).map((tag) => (
-                          <span
-                            key={tag.id}
-                            className="inline-tag"
-                            onClick={() => {
-                              const ids = (s.tags || []).map((t) => t.id);
-                              toggleSessionTag(s.id, tag.id, ids);
-                            }}
-                          >
-                            {tag.emoji} {tag.name} <span className="inline-tag-x">✕</span>
-                          </span>
-                        ))}
-                        {expandedId === s.id && (
-                          <>
-                            {tags.filter((t) => !(s.tags || []).find((st) => st.id === t.id)).slice(0, 3).map((tag) => (
-                              <span
-                                key={tag.id}
-                                className="inline-tag suggestion"
-                                onClick={() => {
-                                  const ids = (s.tags || []).map((t) => t.id);
-                                  toggleSessionTag(s.id, tag.id, ids);
-                                }}
-                              >
-                                {tag.emoji} {tag.name}
-                              </span>
-                            ))}
-                            <span
-                              className="inline-tag add-tag"
-                              onClick={async () => {
-                                const name = prompt("Nouveau tag :");
-                                if (!name?.trim()) return;
-                                try {
-                                  const newTag = await api.createTag({ name: name.trim(), emoji: "🏷️" });
-                                  await loadTags();
-                                  const currentIds = (s.tags || []).map((t) => t.id);
-                                  const updated = await api.setSessionTags(s.id, [...currentIds, newTag.id]);
-                                  setExpandedSession(updated);
-                                  await loadSessions();
-                                } catch (e) {
-                                  setError(`Erreur: ${e.message}`);
-                                }
-                              }}
-                            >+</span>
-                          </>
-                        )}
+                    {editingTitleId === s.id ? (
+                      <input
+                        className="title-edit-input"
+                        autoFocus
+                        value={editingTitleValue}
+                        onChange={(e) => setEditingTitleValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSaveTitle(s.id); if (e.key === "Escape") setEditingTitleId(null); }}
+                        onBlur={() => handleSaveTitle(s.id)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <div className="title" onDoubleClick={(e) => { e.stopPropagation(); setEditingTitleId(s.id); setEditingTitleValue(s.title || ""); }}>
+                        {s.title || "(sans titre)"}
                       </div>
                     )}
                     <div className="meta">
@@ -1616,6 +1564,47 @@ export default function App() {
                       {" · "}{formatDate(s.created_at)}
                     </div>
                   </div>
+                  {/* Tags — right side */}
+                  {(s.tags?.length > 0 || expandedId === s.id) && (
+                    <div className="header-tags" onClick={(e) => e.stopPropagation()}>
+                      {(s.tags || []).map((tag) => (
+                        <span
+                          key={tag.id}
+                          className="tag-chip selected"
+                          onClick={() => toggleSessionTag(s.id, tag.id, (s.tags || []).map((t) => t.id))}
+                        >
+                          {tag.emoji} {tag.name}
+                        </span>
+                      ))}
+                      {expandedId === s.id && tags.filter((t) => !(s.tags || []).find((st) => st.id === t.id)).slice(0, 2).map((tag) => (
+                        <span
+                          key={tag.id}
+                          className="tag-chip"
+                          onClick={() => toggleSessionTag(s.id, tag.id, (s.tags || []).map((t) => t.id))}
+                        >
+                          {tag.emoji} {tag.name}
+                        </span>
+                      ))}
+                      {expandedId === s.id && (
+                        <span
+                          className="tag-chip tag-create"
+                          onClick={async () => {
+                            const name = prompt("Nouveau tag :");
+                            if (!name?.trim()) return;
+                            try {
+                              const newTag = await api.createTag({ name: name.trim(), emoji: "🏷️" });
+                              await loadTags();
+                              const currentIds = (s.tags || []).map((t) => t.id);
+                              await api.setSessionTags(s.id, [...currentIds, newTag.id]);
+                              await loadSessions();
+                            } catch (e) {
+                              setError(`Erreur: ${e.message}`);
+                            }
+                          }}
+                        >+</span>
+                      )}
+                    </div>
+                  )}
                   <span className={`chevron ${expandedId === s.id ? "open" : ""}`}>&#9656;</span>
                 </div>
 
@@ -1888,7 +1877,7 @@ export default function App() {
       </div>
 
       {/* ─── VERSION FOOTER ──────────────────────── */}
-      <div className="version-footer">v0.5.0</div>
+      <div className="version-footer">v0.5.1</div>
     </div>
   );
 }

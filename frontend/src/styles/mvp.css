@@ -325,50 +325,18 @@ label {
   font-family: inherit;
 }
 
-/* Inline session tags (in header) */
-.session-inline-tags {
+/* Header tags (right side of session row) */
+.header-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 3px;
+  flex-shrink: 0;
+  max-width: 45%;
+  justify-content: flex-end;
 }
-.inline-tag {
+.header-tags .tag-chip {
   font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--accent);
-  color: var(--bg);
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  line-height: 1.4;
-}
-.inline-tag .inline-tag-x {
-  font-size: 8px;
-  opacity: 0.6;
-  margin-left: 2px;
-}
-.inline-tag:hover .inline-tag-x { opacity: 1; }
-.inline-tag.suggestion {
-  background: var(--surface2);
-  color: var(--text-soft);
-  border: 1px dashed var(--border);
-  font-weight: 400;
-}
-.inline-tag.suggestion:hover {
-  color: var(--text);
-  border-color: var(--text-soft);
-}
-.inline-tag.add-tag {
-  background: none;
-  border: 1px dashed var(--border);
-  color: var(--text-soft);
-  font-weight: 700;
-  padding: 1px 8px;
-}
-.inline-tag.add-tag:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+  padding: 2px 7px;
 }
 
 /* Status badges */
