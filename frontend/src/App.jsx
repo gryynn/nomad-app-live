@@ -133,12 +133,11 @@ export default function App() {
   // Editable transcript in session detail
   const [editingTranscript, setEditingTranscript] = useState("");
   const [transcriptDirty, setTranscriptDirty] = useState(false);
+  const [transcriptViewMode, setTranscriptViewMode] = useState("plain"); // plain | timestamps | speakers
+  const audioPlayerRef = useRef(null);
 
-  // Offline sync + autosave
+  // Offline sync
   const offline = useOfflineSync();
-  const [autoSaving, setAutoSaving] = useState(false);
-  const autoSaveTranscriptTimer = useRef(null);
-  const autoSaveNotesTimer = useRef(null);
 
   // ─── Load data ────────────────────────────────────
   const loadSessions = useCallback(async (filters = {}) => {
@@ -214,57 +213,6 @@ export default function App() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [isRecording, showReview, transcriptDirty, sessionNotesDirty, pasteSaving, importUploading]);
 
-  // ─── Autosave transcript (debounced 3s) ───────────
-  useEffect(() => {
-    if (!transcriptDirty || !expandedId) return;
-    if (autoSaveTranscriptTimer.current) clearTimeout(autoSaveTranscriptTimer.current);
-    autoSaveTranscriptTimer.current = setTimeout(async () => {
-      try {
-        setAutoSaving(true);
-        const wordCount = editingTranscript.trim().split(/\s+/).filter(Boolean).length;
-        await api.updateSession(expandedId, { transcript: editingTranscript.trim(), transcript_words: wordCount });
-        setTranscriptDirty(false);
-        const detail = await api.getSession(expandedId);
-        setExpandedSession(detail);
-      } catch (e) {
-        console.error("[AUTOSAVE] transcript failed:", e);
-      } finally {
-        setAutoSaving(false);
-      }
-    }, 3000);
-    return () => clearTimeout(autoSaveTranscriptTimer.current);
-  }, [editingTranscript, transcriptDirty, expandedId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Autosave notes (debounced 3s) ───────────────
-  useEffect(() => {
-    if (!sessionNotesDirty || !expandedId) return;
-    if (autoSaveNotesTimer.current) clearTimeout(autoSaveNotesTimer.current);
-    autoSaveNotesTimer.current = setTimeout(async () => {
-      try {
-        setAutoSaving(true);
-        await api.addNote(expandedId, sessionNotesText.trim());
-        const hashtags = extractHashtags(sessionNotesText);
-        if (hashtags.length > 0) {
-          const sessionTagIds = (expandedSession?.tags || []).map((t) => t.id);
-          const newTagIds = await ensureTagsExist(hashtags);
-          const mergedIds = [...new Set([...sessionTagIds, ...newTagIds])];
-          if (mergedIds.length > sessionTagIds.length) {
-            await api.setSessionTags(expandedId, mergedIds);
-          }
-        }
-        setSessionNotesDirty(false);
-        const detail = await api.getSession(expandedId);
-        setExpandedSession(detail);
-        const updatedNotes = (detail.notes || []).map((n) => n.content).join("\n");
-        setSessionNotesText(updatedNotes);
-      } catch (e) {
-        console.error("[AUTOSAVE] notes failed:", e);
-      } finally {
-        setAutoSaving(false);
-      }
-    }, 3000);
-    return () => clearTimeout(autoSaveNotesTimer.current);
-  }, [sessionNotesText, sessionNotesDirty, expandedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Canvas audio visualizer animation loop
   useEffect(() => {
@@ -730,6 +678,7 @@ export default function App() {
     setExpandedSession(null);
     setSessionNotesDirty(false);
     setTranscriptDirty(false);
+    setTranscriptViewMode("plain");
     setSessionTagSuggestions([]);
     try {
       const detail = await api.getSession(id);
@@ -946,7 +895,6 @@ export default function App() {
       <div className="header">
         <h1>N O M A D</h1>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {autoSaving && <span className="autosave-indicator">sauvegarde...</span>}
           {!offline.isOnline && <span className="offline-badge">hors-ligne</span>}
           {offline.pendingCount > 0 && <span className="pending-badge" title={`${offline.pendingCount} élément(s) en attente de sync`}>{offline.pendingCount}</span>}
           <div className={`status-dot ${!offline.isOnline ? "offline" : loading ? "offline" : ""}`} title={!offline.isOnline ? "Hors-ligne" : loading ? "Chargement..." : "Connecté"} />
@@ -1472,23 +1420,134 @@ export default function App() {
                 {/* Expanded detail */}
                 {expandedId === s.id && expandedSession && (
                   <div className="session-detail">
+                    {/* Audio Player */}
+                    {s.audio_url && (
+                      <div className="audio-player-section">
+                        <audio
+                          ref={audioPlayerRef}
+                          src={s.audio_url}
+                          controls
+                          preload="metadata"
+                          className="audio-player"
+                        />
+                      </div>
+                    )}
+
                     {/* Transcript */}
                     {expandedSession.transcript ? (
                       <div>
-                        <label>Transcription ({(editingTranscript || expandedSession.transcript).trim().split(/\s+/).filter(Boolean).length} mots)</label>
-                        <textarea
-                          className="transcript-edit"
-                          value={editingTranscript || expandedSession.transcript}
-                          onChange={(e) => { setEditingTranscript(e.target.value); setTranscriptDirty(true); }}
-                        />
-                        {transcriptDirty && (
-                          <button
-                            className="btn btn-sm btn-primary"
-                            style={{ marginTop: 6, width: "auto" }}
-                            onClick={() => handleSaveTranscript(s.id)}
-                          >
-                            Sauvegarder transcription
-                          </button>
+                        <div className="transcript-header">
+                          <label>Transcription ({(editingTranscript || expandedSession.transcript).trim().split(/\s+/).filter(Boolean).length} mots)</label>
+                          <div className="transcript-view-toggle">
+                            <button
+                              className={`view-mode-btn ${transcriptViewMode === "plain" ? "active" : ""}`}
+                              onClick={() => setTranscriptViewMode("plain")}
+                              title="Texte brut éditable"
+                            >
+                              Texte
+                            </button>
+                            <button
+                              className={`view-mode-btn ${transcriptViewMode === "timestamps" ? "active" : ""}`}
+                              onClick={() => setTranscriptViewMode("timestamps")}
+                              title="Avec horodatage"
+                            >
+                              Horodatage
+                            </button>
+                            <button
+                              className={`view-mode-btn ${transcriptViewMode === "speakers" ? "active" : ""}`}
+                              onClick={() => setTranscriptViewMode("speakers")}
+                              title="Par locuteur"
+                            >
+                              Locuteurs
+                            </button>
+                          </div>
+                        </div>
+
+                        {transcriptViewMode === "plain" && (
+                          <>
+                            <textarea
+                              className="transcript-edit"
+                              value={editingTranscript || expandedSession.transcript}
+                              onChange={(e) => { setEditingTranscript(e.target.value); setTranscriptDirty(true); }}
+                            />
+                            {transcriptDirty && (
+                              <button
+                                className="btn btn-sm btn-primary"
+                                style={{ marginTop: 6, width: "auto" }}
+                                onClick={() => handleSaveTranscript(s.id)}
+                              >
+                                Sauvegarder transcription
+                              </button>
+                            )}
+                          </>
+                        )}
+
+                        {transcriptViewMode === "timestamps" && (
+                          <div className="transcript-segments">
+                            {expandedSession.transcript_segments?.length > 0 ? (
+                              expandedSession.transcript_segments.map((seg, i) => (
+                                <div
+                                  key={i}
+                                  className="segment-row"
+                                  onClick={() => {
+                                    if (audioPlayerRef.current) {
+                                      audioPlayerRef.current.currentTime = seg.start;
+                                      audioPlayerRef.current.play();
+                                    }
+                                  }}
+                                >
+                                  <span className="segment-time">
+                                    [{Math.floor(seg.start / 60).toString().padStart(2, "0")}:{Math.floor(seg.start % 60).toString().padStart(2, "0")}]
+                                  </span>
+                                  <span className="segment-text">{seg.text}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="empty">Pas de données horodatées. Re-transcrivez pour obtenir les timestamps.</div>
+                            )}
+                          </div>
+                        )}
+
+                        {transcriptViewMode === "speakers" && (
+                          <div className="transcript-segments">
+                            {expandedSession.transcript_segments?.length > 0 ? (
+                              (() => {
+                                const segments = expandedSession.transcript_segments;
+                                const hasSpeakers = segments.some((seg) => seg.speaker != null);
+                                if (!hasSpeakers) {
+                                  return <div className="empty">Pas de données de locuteurs. Utilisez un moteur avec diarisation (WhisperX).</div>;
+                                }
+                                let lastSpeaker = null;
+                                return segments.map((seg, i) => {
+                                  const showSpeaker = seg.speaker !== lastSpeaker;
+                                  lastSpeaker = seg.speaker;
+                                  return (
+                                    <div key={i}>
+                                      {showSpeaker && (
+                                        <div className="speaker-label">Locuteur {(seg.speaker ?? 0) + 1}</div>
+                                      )}
+                                      <div
+                                        className="segment-row"
+                                        onClick={() => {
+                                          if (audioPlayerRef.current) {
+                                            audioPlayerRef.current.currentTime = seg.start;
+                                            audioPlayerRef.current.play();
+                                          }
+                                        }}
+                                      >
+                                        <span className="segment-time">
+                                          [{Math.floor(seg.start / 60).toString().padStart(2, "0")}:{Math.floor(seg.start % 60).toString().padStart(2, "0")}]
+                                        </span>
+                                        <span className="segment-text">{seg.text}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                });
+                              })()
+                            ) : (
+                              <div className="empty">Pas de données de segments. Re-transcrivez pour obtenir les locuteurs.</div>
+                            )}
+                          </div>
                         )}
                       </div>
                     ) : (
@@ -1646,7 +1705,7 @@ export default function App() {
       </div>
 
       {/* ─── VERSION FOOTER ──────────────────────── */}
-      <div className="version-footer">v0.4.2</div>
+      <div className="version-footer">v0.5.0</div>
     </div>
   );
 }

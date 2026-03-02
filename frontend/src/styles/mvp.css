@@ -56,16 +56,7 @@ html, body {
 }
 .header .status-dot.offline { background: var(--red); }
 
-/* Autosave + offline indicators */
-.autosave-indicator {
-  font-size: 10px;
-  color: var(--text-soft);
-  animation: autosave-fade 1.5s ease-in-out infinite;
-}
-@keyframes autosave-fade {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
-}
+/* Offline indicators */
 .offline-badge {
   font-size: 9px;
   padding: 2px 6px;
@@ -863,6 +854,103 @@ label {
 }
 .transcript-edit:focus {
   border-color: var(--accent);
+}
+
+/* Audio player */
+.audio-player-section {
+  margin-bottom: 10px;
+}
+.audio-player {
+  width: 100%;
+  height: 36px;
+  border-radius: var(--radius);
+  outline: none;
+}
+
+/* Transcript header with view toggle */
+.transcript-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+.transcript-header label {
+  margin: 0;
+}
+.transcript-view-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 2px;
+  border: 1px solid var(--border);
+}
+.view-mode-btn {
+  background: none;
+  border: none;
+  color: var(--text-soft);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.view-mode-btn:hover {
+  color: var(--text);
+}
+.view-mode-btn.active {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+/* Transcript segments (timestamps / speakers view) */
+.transcript-segments {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+.segment-row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s;
+  line-height: 1.5;
+}
+.segment-row:hover {
+  background: var(--surface2);
+}
+.segment-time {
+  color: var(--accent);
+  font-size: 11px;
+  font-family: monospace;
+  white-space: nowrap;
+  padding-top: 1px;
+  opacity: 0.8;
+}
+.segment-text {
+  color: var(--text);
+  font-size: 13px;
+}
+.speaker-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 6px 2px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.speaker-label:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 2px;
 }
 
 /* Version footer */
