@@ -72,16 +72,23 @@ export const addMark = (id, time, label = null) =>
     body: JSON.stringify({ time, label }),
   });
 
-// Upload with progress tracking
-export const uploadAudio = (file, onProgress) => {
-  const formData = new FormData();
-  formData.append("file", file);
+// Upload: direct to Supabase Storage via signed URL (no backend bottleneck)
+export const uploadAudio = async (file, onProgress) => {
   const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-  console.log(`[API] POST /api/upload (${file.name}, ${sizeMB} MB)`);
+  console.log(`[UPLOAD] ${file.name} (${sizeMB} MB) — requesting signed URL...`);
 
-  return new Promise((resolve, reject) => {
+  // Step 1: Get signed upload URL from backend
+  const init = await request("/api/upload/init", {
+    method: "POST",
+    body: JSON.stringify({ filename: file.name, size: file.size }),
+  });
+  console.log(`[UPLOAD] Got signed URL, uploading direct to storage...`);
+
+  // Step 2: Upload directly to Supabase Storage via XHR (progress tracking)
+  await new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${BASE}/api/upload`);
+    xhr.open("PUT", init.upload_url);
+    xhr.setRequestHeader("Content-Type", init.content_type);
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {
@@ -90,25 +97,33 @@ export const uploadAudio = (file, onProgress) => {
     };
 
     xhr.onload = () => {
-      try {
-        const data = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          console.log(`[API] Upload OK`, data);
-          resolve(data);
-        } else {
-          reject(new Error(data.detail || `Upload failed (${xhr.status})`));
-        }
-      } catch {
-        if (xhr.status === 413) reject(new Error(`Fichier trop volumineux (${sizeMB} MB). Limite serveur dépassée.`));
-        else reject(new Error(`Erreur serveur (${xhr.status}).`));
+      if (xhr.status >= 200 && xhr.status < 300) {
+        console.log(`[UPLOAD] Storage upload OK (${xhr.status})`);
+        resolve();
+      } else {
+        reject(new Error(`Upload storage failed (${xhr.status}): ${xhr.responseText}`));
       }
     };
 
     xhr.onerror = () => reject(new Error("Connexion perdue pendant l'upload."));
-    xhr.ontimeout = () => reject(new Error("Upload timeout — fichier trop volumineux ?"));
-    xhr.timeout = 600000; // 10 min
-    xhr.send(formData);
+    xhr.ontimeout = () => reject(new Error("Upload timeout."));
+    xhr.timeout = 3600000; // 1 hour for very large files
+    xhr.send(file);
   });
+
+  // Step 3: Tell backend to create the session record
+  console.log(`[UPLOAD] Creating session record...`);
+  const result = await request("/api/upload/complete", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: init.session_id,
+      storage_path: init.storage_path,
+      filename: file.name,
+      size: file.size,
+    }),
+  });
+
+  return result;
 };
 
 // Tags
