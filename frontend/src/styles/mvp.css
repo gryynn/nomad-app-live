@@ -890,28 +890,38 @@ label {
   color: var(--accent);
 }
 
-/* Date range inputs in filter bar */
-.filter-date {
-  padding: 3px 6px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
+/* Date range popover */
+.date-range-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
   background: var(--surface);
-  color: var(--text-soft);
-  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 50;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  min-width: 160px;
+}
+.filter-date {
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 12px;
   font-family: inherit;
   outline: none;
   transition: border-color 0.15s;
-  max-width: 120px;
   color-scheme: dark;
 }
 .filter-date:focus {
   border-color: var(--accent);
-  color: var(--text);
-}
-.filter-date.has-value {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.06);
 }
 
 /* Editable transcript textarea */

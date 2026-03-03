@@ -133,6 +133,7 @@ export default function App() {
   const [filterTagsExpanded, setFilterTagsExpanded] = useState(false);
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
+  const [showDateRange, setShowDateRange] = useState(false);
   const filterSearchTimer = useRef(null);
 
   // Editable transcript in session detail
@@ -797,14 +798,22 @@ export default function App() {
         }
       }
     }
-    try {
-      const updated = await api.setSessionTags(sessionId, newIds);
-      setExpandedSession(updated);
-      await loadTags(); // refresh session_count
-      await loadSessions(); // refresh inline tags in list
-    } catch (e) {
-      setError(`Erreur tags: ${e.message}`);
+    // Optimistic UI update — instant feedback
+    const newTagObjects = newIds.map((id) => tags.find((t) => t.id === id)).filter(Boolean);
+    setSessions((prev) =>
+      prev.map((s) => s.id === sessionId ? { ...s, tags: newTagObjects } : s)
+    );
+    if (expandedSession && expandedSession.id === sessionId) {
+      setExpandedSession((prev) => prev ? { ...prev, tags: newTagObjects } : prev);
     }
+
+    // Background sync — no blocking await
+    api.setSessionTags(sessionId, newIds).then(() => {
+      loadTags(); // refresh session_count
+    }).catch((e) => {
+      setError(`Erreur tags: ${e.message}`);
+      loadSessions(); // rollback on error
+    });
   }
 
   // ─── Session notes (in expanded detail) ─────────
@@ -1542,7 +1551,7 @@ export default function App() {
                   value={filterSearch}
                   onChange={(e) => setFilterSearch(e.target.value)}
                 />
-                {/* Time presets + date range */}
+                {/* Time presets + date range button */}
                 <div className="filter-chips">
                   {[
                     { val: "all", label: "Tout" },
@@ -1554,26 +1563,48 @@ export default function App() {
                     <button
                       key={t.val}
                       className={`filter-chip ${filterTime === t.val && !filterDateFrom && !filterDateTo ? "active" : ""}`}
-                      onClick={() => { setFilterTime(t.val); setFilterDateFrom(""); setFilterDateTo(""); }}
+                      onClick={() => { setFilterTime(t.val); setFilterDateFrom(""); setFilterDateTo(""); setShowDateRange(false); }}
                     >
                       {t.label}
                     </button>
                   ))}
-                  <input
-                    type="date"
-                    className={`filter-date${filterDateFrom ? " has-value" : ""}`}
-                    value={filterDateFrom}
-                    onChange={(e) => { setFilterDateFrom(e.target.value); if (e.target.value) setFilterTime("all"); }}
-                    title="Depuis"
-                  />
-                  <span style={{ color: "var(--text-soft)", fontSize: 11, lineHeight: "28px" }}>→</span>
-                  <input
-                    type="date"
-                    className={`filter-date${filterDateTo ? " has-value" : ""}`}
-                    value={filterDateTo}
-                    onChange={(e) => { setFilterDateTo(e.target.value); if (e.target.value) setFilterTime("all"); }}
-                    title="Jusqu'à"
-                  />
+                  <div style={{ position: "relative" }}>
+                    <button
+                      className={`filter-chip ${filterDateFrom || filterDateTo ? "active" : ""}`}
+                      onClick={() => setShowDateRange((v) => !v)}
+                    >
+                      {filterDateFrom || filterDateTo
+                        ? `${filterDateFrom || "..."} → ${filterDateTo || "..."}`
+                        : "Dates"}
+                    </button>
+                    {showDateRange && (
+                      <div className="date-range-popover">
+                        <label style={{ fontSize: 10, color: "var(--text-soft)", margin: 0 }}>Depuis</label>
+                        <input
+                          type="date"
+                          className="filter-date"
+                          value={filterDateFrom}
+                          onChange={(e) => { setFilterDateFrom(e.target.value); if (e.target.value) setFilterTime("all"); }}
+                        />
+                        <label style={{ fontSize: 10, color: "var(--text-soft)", margin: 0 }}>Jusqu'à</label>
+                        <input
+                          type="date"
+                          className="filter-date"
+                          value={filterDateTo}
+                          onChange={(e) => { setFilterDateTo(e.target.value); if (e.target.value) setFilterTime("all"); }}
+                        />
+                        {(filterDateFrom || filterDateTo) && (
+                          <button
+                            className="filter-chip"
+                            style={{ fontSize: 10, width: "100%" }}
+                            onClick={() => { setFilterDateFrom(""); setFilterDateTo(""); setShowDateRange(false); }}
+                          >
+                            Effacer
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {/* Status */}
                 <div className="filter-chips">
