@@ -86,7 +86,7 @@ export default function App() {
   const cancelledRef = useRef(false);
 
   // Engine selection
-  const [selectedEngine, setSelectedEngine] = useState("groq-turbo");
+  const [selectedEngine, setSelectedEngine] = useState("auto");
 
   // Session title editing
   const [editingTitleId, setEditingTitleId] = useState(null);
@@ -1172,6 +1172,11 @@ export default function App() {
               <div style={{ marginBottom: 12 }}>
                 <label>Moteur</label>
                 <div className="engine-row">
+                  <button
+                    className={`engine-chip ${selectedEngine === "auto" ? "selected" : ""}`}
+                    onClick={() => setSelectedEngine("auto")}
+                    title="Auto: Groq pour < 25 MB, Deepgram pour les longs fichiers"
+                  >Auto</button>
                   {engines.map((eng) => (
                     <button
                       key={eng.id}

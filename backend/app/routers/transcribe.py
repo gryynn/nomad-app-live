@@ -3,8 +3,9 @@ import httpx
 from app.models.schemas import TranscribeRequest
 from app.services.queue_manager import QueueManager
 from app.services.groq_service import GroqService
+from app.services.deepgram_service import DeepgramService
 from app.services.wynona_service import WynonaService
-from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY, DEEPGRAM_API_KEY
 
 router = APIRouter(prefix="/transcribe", tags=["transcribe"])
 
@@ -17,26 +18,63 @@ HEADERS = {
 }
 BASE_URL = f"{SUPABASE_URL}/rest/v1"
 
+# Groq file size limit: 25 MB
+GROQ_SIZE_LIMIT = 25 * 1024 * 1024
+
 # Initialize services
 queue_manager = QueueManager()
 groq_service = GroqService()
+deepgram_service = DeepgramService()
 wynona_service = WynonaService()
+
+
+async def resolve_engine(engine: str, audio_url: str) -> str:
+    """Auto-select engine based on file size when engine is 'auto'."""
+    if engine != "auto":
+        return engine
+    # Check file size via HEAD request
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.head(audio_url)
+            size = int(resp.headers.get("content-length", "0"))
+            if size > GROQ_SIZE_LIMIT and DEEPGRAM_API_KEY:
+                print(f"[AUTO-ENGINE] File {size / 1024 / 1024:.1f} MB > 25 MB → deepgram")
+                return "deepgram"
+    except Exception:
+        pass
+    return "groq-turbo"
 
 
 async def process_transcription(job_id: str, session_id: str, engine: str, audio_url: str):
     try:
         queue_manager.update_status(job_id, "processing")
 
-        if engine in ["groq-turbo", "groq-large"]:
-            await groq_service.transcribe(session_id, audio_url, engine)
+        # Resolve auto engine
+        resolved = await resolve_engine(engine, audio_url)
+        print(f"[TRANSCRIBE] job={job_id} engine={engine}→{resolved}")
+
+        # Store which engine is being used
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.patch(
+                    f"{BASE_URL}/sessions?id=eq.{session_id}",
+                    headers=HEADERS,
+                    json={"engine_used": resolved, "status": "processing"},
+                )
+        except Exception:
+            pass
+
+        if resolved in ["groq-turbo", "groq-large"]:
+            await groq_service.transcribe(session_id, audio_url, resolved)
             queue_manager.update_status(job_id, "completed")
-        elif engine == "wynona":
+        elif resolved == "deepgram":
+            await deepgram_service.transcribe(session_id, audio_url)
+            queue_manager.update_status(job_id, "completed")
+        elif resolved == "wynona":
             await wynona_service.transcribe(session_id, audio_url)
             queue_manager.update_status(job_id, "completed")
-        elif engine == "deepgram":
-            raise NotImplementedError("Deepgram transcription not yet implemented")
         else:
-            raise ValueError(f"Unknown engine: {engine}")
+            raise ValueError(f"Unknown engine: {resolved}")
 
     except Exception as e:
         queue_manager.update_status(job_id, "failed")

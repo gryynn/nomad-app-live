@@ -34,7 +34,7 @@ class GroqService:
 
         audio_data = await self._download_audio(audio_url)
         result = await self._call_groq_api(audio_data, engine, audio_url)
-        await self._store_transcript(session_id, result)
+        await self._store_transcript(session_id, result, engine)
         return result
 
     async def _download_audio(self, audio_url: str) -> bytes:
@@ -70,7 +70,7 @@ class GroqService:
             response.raise_for_status()
             return response.json()
 
-    async def _store_transcript(self, session_id: str, result: dict) -> None:
+    async def _store_transcript(self, session_id: str, result: dict, engine: str = "groq-turbo") -> None:
         transcript_text = result.get("text", "")
         segments = result.get("segments", [])
         word_count = len(transcript_text.split()) if transcript_text else 0
@@ -83,6 +83,7 @@ class GroqService:
                     "transcript": transcript_text,
                     "transcript_segments": segments,
                     "transcript_words": word_count,
+                    "engine_used": engine,
                     "status": "transcribed",
                 },
             )
