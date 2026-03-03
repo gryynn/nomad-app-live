@@ -60,6 +60,12 @@ export const addNote = (id, content) =>
     body: JSON.stringify({ content }),
   });
 
+export const replaceNotes = (id, content) =>
+  request(`/api/sessions/${id}/notes`, {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+
 export const addMark = (id, time, label = null) =>
   request(`/api/sessions/${id}/marks`, {
     method: "POST",

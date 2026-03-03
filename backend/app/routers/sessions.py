@@ -362,7 +362,6 @@ async def add_note_to_session(session_id: str, note: NoteCreate):
     """Add a text note to a session"""
     try:
         async with httpx.AsyncClient() as client:
-            # Check if session exists
             check_response = await client.get(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
@@ -370,32 +369,48 @@ async def add_note_to_session(session_id: str, note: NoteCreate):
             )
             check_response.raise_for_status()
             sessions = check_response.json()
-
-            if not sessions or len(sessions) == 0:
+            if not sessions:
                 raise HTTPException(status_code=404, detail="Session not found")
-
-            note_data = {
-                "session_id": session_id,
-                "content": note.content,
-            }
 
             response = await client.post(
                 f"{BASE_URL}/notes",
                 headers=HEADERS,
-                json=note_data,
+                json={"session_id": session_id, "content": note.content},
             )
             response.raise_for_status()
-
             created_note = response.json()
             if isinstance(created_note, list) and len(created_note) > 0:
                 created_note = created_note[0]
-
             return created_note
     except HTTPException:
         raise
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail="Failed to create note")
-    except httpx.ConnectError:
-        raise HTTPException(status_code=503, detail="Database connection failed")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.put("/{session_id}/notes", response_model=NoteResponse)
+async def replace_notes(session_id: str, note: NoteCreate):
+    """Replace all notes for a session with a single note"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Delete existing notes
+            await client.delete(
+                f"{BASE_URL}/notes",
+                headers=HEADERS,
+                params={"session_id": f"eq.{session_id}"},
+            )
+            # Create single new note
+            response = await client.post(
+                f"{BASE_URL}/notes",
+                headers=HEADERS,
+                json={"session_id": session_id, "content": note.content},
+            )
+            response.raise_for_status()
+            created_note = response.json()
+            if isinstance(created_note, list) and len(created_note) > 0:
+                created_note = created_note[0]
+            return created_note
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=500, detail="Internal server error")

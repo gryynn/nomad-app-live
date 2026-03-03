@@ -88,6 +88,8 @@ export default function App() {
   // Session title editing
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [editingTitleValue, setEditingTitleValue] = useState("");
+  // Tag popover (add tags from header)
+  const [tagPopoverId, setTagPopoverId] = useState(null);
 
   // Session notes (expanded detail)
   const sessionNotesRef = useRef(null);
@@ -520,7 +522,7 @@ export default function App() {
 
   // ─── Post-stop review: save session with all metadata ───
   function extractHashtags(text) {
-    const matches = text.match(/#([\w.\-]+)/g);
+    const matches = text.match(/#([\p{L}\p{N}_.\-]+)/gu);
     if (!matches) return [];
     return [...new Set(matches.map((m) => m.slice(1).toLowerCase()))];
   }
@@ -530,7 +532,7 @@ export default function App() {
     setRecNotesText(text);
     const cursor = e.target.selectionStart;
     const beforeCursor = text.slice(0, cursor);
-    const hashMatch = beforeCursor.match(/#([\w.\-]*)$/);
+    const hashMatch = beforeCursor.match(/#([\p{L}\p{N}_.\-]*)$/u);
     if (hashMatch && hashMatch[1].length > 0) {
       const query = hashMatch[1].toLowerCase();
       const matching = tags.filter(
@@ -688,6 +690,9 @@ export default function App() {
     setTranscriptViewMode("plain");
     setPlayerPlaying(false);
     setPlayerTime(0);
+    // Revoke old blob URL if any
+    const oldAudio = audioPlayerRef.current;
+    if (oldAudio?.src?.startsWith("blob:")) URL.revokeObjectURL(oldAudio.src);
     waveformDataRef.current = null;
     setSessionTagSuggestions([]);
     // Pre-set duration from session data so seek works immediately
@@ -798,7 +803,7 @@ export default function App() {
     // Autocomplete suggestions
     const cursor = e.target.selectionStart;
     const beforeCursor = text.slice(0, cursor);
-    const hashMatch = beforeCursor.match(/#([\w.\-]*)$/);
+    const hashMatch = beforeCursor.match(/#([\p{L}\p{N}_.\-]*)$/u);
     if (hashMatch && hashMatch[1].length > 0) {
       const query = hashMatch[1].toLowerCase();
       const matching = tags.filter(
@@ -852,7 +857,7 @@ export default function App() {
   async function handleSaveSessionNotes(sessionId) {
     if (!sessionNotesText.trim()) return;
     try {
-      await api.addNote(sessionId, sessionNotesText.trim());
+      await api.replaceNotes(sessionId, sessionNotesText.trim());
       // Apply #tags from notes to session, auto-create missing ones
       const hashtags = extractHashtags(sessionNotesText);
       if (hashtags.length > 0) {
@@ -975,14 +980,32 @@ export default function App() {
     setPlayerTime(a.currentTime);
   }
 
-  // Decode audio and extract waveform peaks
+  // Decode audio, extract waveform peaks, create Blob URL for instant seek
   async function loadWaveform(url) {
     try {
       const resp = await fetch(url);
       const arrayBuf = await resp.arrayBuffer();
+
+      // Create Blob URL from downloaded data — enables instant seeking
+      const contentType = resp.headers.get("content-type") || "audio/mpeg";
+      const blob = new Blob([arrayBuf], { type: contentType });
+      const blobUrl = URL.createObjectURL(blob);
+      const a = audioPlayerRef.current;
+      if (a) {
+        const wasPlaying = !a.paused;
+        const curTime = a.currentTime;
+        a.src = blobUrl;
+        a.currentTime = curTime;
+        if (wasPlaying) a.play();
+      }
+
+      // Decode for waveform visualization
       const actx = new (window.AudioContext || window.webkitAudioContext)();
-      const audioBuf = await actx.decodeAudioData(arrayBuf);
+      const audioBuf = await actx.decodeAudioData(arrayBuf.slice(0)); // slice to avoid detached buffer
       actx.close();
+      if (audioBuf.duration && isFinite(audioBuf.duration)) {
+        setPlayerDuration(audioBuf.duration);
+      }
       const raw = audioBuf.getChannelData(0);
       const samples = 200;
       const blockSize = Math.floor(raw.length / samples);
@@ -1575,47 +1598,60 @@ export default function App() {
                       {" · "}{formatDate(s.created_at)}
                     </div>
                   </div>
-                  {/* Tags — right side */}
-                  {(s.tags?.length > 0 || expandedId === s.id) && (
-                    <div className="header-tags" onClick={(e) => e.stopPropagation()}>
-                      {(s.tags || []).map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="tag-chip selected"
-                          onClick={() => toggleSessionTag(s.id, tag.id, (s.tags || []).map((t) => t.id))}
-                        >
-                          {tag.emoji} {tag.name}
-                        </span>
-                      ))}
-                      {expandedId === s.id && tags.filter((t) => !(s.tags || []).find((st) => st.id === t.id)).slice(0, 2).map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="tag-chip"
-                          onClick={() => toggleSessionTag(s.id, tag.id, (s.tags || []).map((t) => t.id))}
-                        >
-                          {tag.emoji} {tag.name}
-                        </span>
-                      ))}
-                      {expandedId === s.id && (
-                        <span
-                          className="tag-chip tag-create"
-                          onClick={async () => {
-                            const name = prompt("Nouveau tag :");
-                            if (!name?.trim()) return;
-                            try {
-                              const newTag = await api.createTag({ name: name.trim(), emoji: "🏷️" });
-                              await loadTags();
-                              const currentIds = (s.tags || []).map((t) => t.id);
-                              await api.setSessionTags(s.id, [...currentIds, newTag.id]);
-                              await loadSessions();
-                            } catch (e) {
-                              setError(`Erreur: ${e.message}`);
-                            }
-                          }}
-                        >+</span>
+                  {/* Tags — right side: selected only + add button */}
+                  <div className="header-tags" onClick={(e) => e.stopPropagation()}>
+                    {(s.tags || []).map((tag) => (
+                      <span
+                        key={tag.id}
+                        className="tag-chip selected"
+                        onClick={() => toggleSessionTag(s.id, tag.id, (s.tags || []).map((t) => t.id))}
+                        title="Retirer"
+                      >
+                        {tag.emoji} {tag.name}
+                      </span>
+                    ))}
+                    <div className="tag-add-wrap">
+                      <span
+                        className="tag-chip tag-create"
+                        onClick={() => setTagPopoverId(tagPopoverId === s.id ? null : s.id)}
+                      >+</span>
+                      {tagPopoverId === s.id && (
+                        <div className="tag-popover">
+                          {tags.filter((t) => !(s.tags || []).find((st) => st.id === t.id)).map((tag) => (
+                            <div
+                              key={tag.id}
+                              className="tag-popover-item"
+                              onClick={() => {
+                                toggleSessionTag(s.id, tag.id, (s.tags || []).map((t) => t.id));
+                                setTagPopoverId(null);
+                              }}
+                            >
+                              {tag.emoji} {tag.name}
+                            </div>
+                          ))}
+                          <div
+                            className="tag-popover-item tag-popover-create"
+                            onClick={async () => {
+                              const name = prompt("Nouveau tag :");
+                              if (!name?.trim()) return;
+                              try {
+                                const newTag = await api.createTag({ name: name.trim(), emoji: "🏷️" });
+                                await loadTags();
+                                const currentIds = (s.tags || []).map((t) => t.id);
+                                await api.setSessionTags(s.id, [...currentIds, newTag.id]);
+                                await loadSessions();
+                              } catch (e) {
+                                setError(`Erreur: ${e.message}`);
+                              }
+                              setTagPopoverId(null);
+                            }}
+                          >
+                            + Créer un tag...
+                          </div>
+                        </div>
                       )}
                     </div>
-                  )}
+                  </div>
                   <span className={`chevron ${expandedId === s.id ? "open" : ""}`}>&#9656;</span>
                 </div>
 
@@ -1888,7 +1924,7 @@ export default function App() {
       </div>
 
       {/* ─── VERSION FOOTER ──────────────────────── */}
-      <div className="version-footer">v0.5.1</div>
+      <div className="version-footer">v0.5.2</div>
     </div>
   );
 }
