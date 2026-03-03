@@ -278,7 +278,7 @@ label {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: 8px;
-  overflow: hidden;
+  overflow: visible;
   transition: border-color 0.15s;
 }
 .session-item:hover { border-color: #333; }
@@ -341,16 +341,13 @@ label {
   position: relative;
 }
 .header-tags .tag-chip .tag-remove {
-  display: none;
-  margin-left: 2px;
   font-size: 9px;
-  opacity: 0.7;
+  opacity: 0;
+  transition: opacity 0.15s;
+  margin-left: 1px;
 }
 .header-tags .tag-chip:hover .tag-remove {
-  display: inline;
-}
-.header-tags .tag-chip:hover .tag-label {
-  /* slight dim on hover to hint removability */
+  opacity: 0.8;
 }
 .tag-add-wrap {
   position: relative;

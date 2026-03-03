@@ -994,8 +994,21 @@ export default function App() {
   }
 
   // Decode audio, extract waveform peaks, create Blob URL for instant seek
+  // For files > 30MB, skip blob download (too heavy for 3h+ meetings)
+  const BLOB_SIZE_LIMIT = 30 * 1024 * 1024; // 30 MB
+
   async function loadWaveform(url) {
     try {
+      // HEAD request first to check file size
+      const head = await fetch(url, { method: "HEAD" });
+      const size = parseInt(head.headers.get("content-length") || "0", 10);
+
+      if (size > BLOB_SIZE_LIMIT) {
+        console.log(`[WAVEFORM] File too large (${(size / 1024 / 1024).toFixed(1)} MB), skipping blob download`);
+        waveformDataRef.current = null;
+        return;
+      }
+
       const resp = await fetch(url);
       const arrayBuf = await resp.arrayBuffer();
 
