@@ -87,6 +87,7 @@ async def list_sessions(
     search: Optional[str] = None,
     input_mode: Optional[str] = None,
     created_after: Optional[str] = None,
+    created_before: Optional[str] = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -105,8 +106,12 @@ async def list_sessions(
             params["title"] = f"ilike.*{search}*"
         if input_mode:
             params["input_mode"] = f"eq.{input_mode}"
-        if created_after:
+        if created_after and created_before:
+            params["and"] = f"(created_at.gte.{created_after},created_at.lte.{created_before})"
+        elif created_after:
             params["created_at"] = f"gte.{created_after}"
+        elif created_before:
+            params["created_at"] = f"lte.{created_before}"
 
         async with httpx.AsyncClient() as client:
             # If tag filter, first resolve session IDs from session_tags

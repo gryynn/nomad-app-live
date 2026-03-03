@@ -338,6 +338,19 @@ label {
 .header-tags .tag-chip {
   font-size: 10px;
   padding: 2px 7px;
+  position: relative;
+}
+.header-tags .tag-chip .tag-remove {
+  display: none;
+  margin-left: 2px;
+  font-size: 9px;
+  opacity: 0.7;
+}
+.header-tags .tag-chip:hover .tag-remove {
+  display: inline;
+}
+.header-tags .tag-chip:hover .tag-label {
+  /* slight dim on hover to hint removability */
 }
 .tag-add-wrap {
   position: relative;
@@ -878,6 +891,30 @@ label {
   border-color: var(--accent);
   background: rgba(255, 255, 255, 0.06);
   color: var(--accent);
+}
+
+/* Date range inputs in filter bar */
+.filter-date {
+  padding: 3px 6px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 11px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+  max-width: 120px;
+  color-scheme: dark;
+}
+.filter-date:focus {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.filter-date.has-value {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 /* Editable transcript textarea */

@@ -130,6 +130,9 @@ export default function App() {
   const [filterTagIds, setFilterTagIds] = useState([]);
   const [filterTime, setFilterTime] = useState("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterTagsExpanded, setFilterTagsExpanded] = useState(false);
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
   const filterSearchTimer = useRef(null);
 
   // Editable transcript in session detail
@@ -156,18 +159,28 @@ export default function App() {
       const sq = filters.search ?? filterSearch;
       const stags = filters.tags ?? filterTagIds;
       const stime = filters.time ?? filterTime;
+      const sDateFrom = filters.dateFrom ?? filterDateFrom;
+      const sDateTo = filters.dateTo ?? filterDateTo;
       if (st && st !== "all") params.status = st;
       if (sq) params.search = sq;
       if (stags && stags.length > 0) params.tag = stags.join(",");
-      const createdAfter = getTimeFilterDate(stime);
-      if (createdAfter) params.created_after = createdAfter;
+      // Date range takes priority over preset
+      if (sDateFrom) {
+        params.created_after = new Date(sDateFrom).toISOString();
+      } else {
+        const createdAfter = getTimeFilterDate(stime);
+        if (createdAfter) params.created_after = createdAfter;
+      }
+      if (sDateTo) {
+        params.created_before = new Date(sDateTo + "T23:59:59").toISOString();
+      }
       const data = await api.getSessions(params);
       setSessions(data);
     } catch (e) {
       console.error("Failed to load sessions:", e);
       setError(`Sessions: ${e.message}`);
     }
-  }, [filterStatus, filterSearch, filterTagIds, filterTime]);
+  }, [filterStatus, filterSearch, filterTagIds, filterTime, filterDateFrom, filterDateTo]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -196,7 +209,7 @@ export default function App() {
     // Skip on initial mount (loading still true)
     if (loading) return;
     loadSessions();
-  }, [filterStatus, filterTagIds, filterTime]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filterStatus, filterTagIds, filterTime, filterDateFrom, filterDateTo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading) return;
@@ -1066,7 +1079,7 @@ export default function App() {
   const activeFilterCount = [
     filterStatus !== "all",
     filterSearch !== "",
-    filterTime !== "all",
+    filterTime !== "all" || filterDateFrom || filterDateTo,
     filterTagIds.length > 0,
   ].filter(Boolean).length;
 
@@ -1494,7 +1507,7 @@ export default function App() {
           {activeFilterCount > 0 && (
             <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 4, textTransform: "none", letterSpacing: 0 }}>
               {activeFilterCount} filtre{activeFilterCount > 1 ? "s" : ""}
-              <span onClick={(e) => { e.stopPropagation(); setFilterStatus("all"); setFilterSearch(""); setFilterTagIds([]); setFilterTime("all"); }} style={{ cursor: "pointer", marginLeft: 2 }}>✕</span>
+              <span onClick={(e) => { e.stopPropagation(); setFilterStatus("all"); setFilterSearch(""); setFilterTagIds([]); setFilterTime("all"); setFilterDateFrom(""); setFilterDateTo(""); }} style={{ cursor: "pointer", marginLeft: 2 }}>✕</span>
             </span>
           )}
         </div>
@@ -1516,6 +1529,7 @@ export default function App() {
                   value={filterSearch}
                   onChange={(e) => setFilterSearch(e.target.value)}
                 />
+                {/* Time presets + date range */}
                 <div className="filter-chips">
                   {[
                     { val: "all", label: "Tout" },
@@ -1526,13 +1540,29 @@ export default function App() {
                   ].map((t) => (
                     <button
                       key={t.val}
-                      className={`filter-chip ${filterTime === t.val ? "active" : ""}`}
-                      onClick={() => setFilterTime(t.val)}
+                      className={`filter-chip ${filterTime === t.val && !filterDateFrom && !filterDateTo ? "active" : ""}`}
+                      onClick={() => { setFilterTime(t.val); setFilterDateFrom(""); setFilterDateTo(""); }}
                     >
                       {t.label}
                     </button>
                   ))}
+                  <input
+                    type="date"
+                    className={`filter-date${filterDateFrom ? " has-value" : ""}`}
+                    value={filterDateFrom}
+                    onChange={(e) => { setFilterDateFrom(e.target.value); if (e.target.value) setFilterTime("all"); }}
+                    title="Depuis"
+                  />
+                  <span style={{ color: "var(--text-soft)", fontSize: 11, lineHeight: "28px" }}>→</span>
+                  <input
+                    type="date"
+                    className={`filter-date${filterDateTo ? " has-value" : ""}`}
+                    value={filterDateTo}
+                    onChange={(e) => { setFilterDateTo(e.target.value); if (e.target.value) setFilterTime("all"); }}
+                    title="Jusqu'à"
+                  />
                 </div>
+                {/* Status */}
                 <div className="filter-chips">
                   {["all", "pending", "uploaded", "transcribed", "error"].map((st) => (
                     <button
@@ -1544,24 +1574,52 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                {tags.length > 0 && (
-                  <div className="filter-chips">
-                    {tags.map((tag) => (
-                      <button
-                        key={tag.id}
-                        className={`filter-chip ${filterTagIds.includes(tag.id) ? "active" : ""}`}
-                        onClick={() => {
-                          setFilterTagIds((prev) =>
-                            prev.includes(tag.id) ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
-                          );
-                        }}
-                      >
-                        {tag.emoji} {tag.name}
-                        {tag.session_count > 0 && <span style={{ opacity: 0.5 }}> {tag.session_count}</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {/* Tags — single row with "+" expander */}
+                {tags.length > 0 && (() => {
+                  const VISIBLE_COUNT = 4;
+                  // Always show active filter tags + first N
+                  const visibleTags = filterTagsExpanded
+                    ? tags
+                    : tags.filter((tag, i) => i < VISIBLE_COUNT || filterTagIds.includes(tag.id));
+                  const hiddenCount = tags.length - visibleTags.length;
+                  const hasMore = hiddenCount > 0;
+                  return (
+                    <div className="filter-chips">
+                      {visibleTags.map((tag) => (
+                        <button
+                          key={tag.id}
+                          className={`filter-chip ${filterTagIds.includes(tag.id) ? "active" : ""}`}
+                          onClick={() => {
+                            setFilterTagIds((prev) =>
+                              prev.includes(tag.id) ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
+                            );
+                          }}
+                        >
+                          {tag.emoji} {tag.name}
+                          {tag.session_count > 0 && <span style={{ opacity: 0.5 }}> {tag.session_count}</span>}
+                        </button>
+                      ))}
+                      {hasMore && !filterTagsExpanded && (
+                        <button
+                          className="filter-chip"
+                          onClick={() => setFilterTagsExpanded(true)}
+                          style={{ fontStyle: "italic" }}
+                        >
+                          +{hiddenCount}
+                        </button>
+                      )}
+                      {filterTagsExpanded && tags.length > VISIBLE_COUNT && (
+                        <button
+                          className="filter-chip"
+                          onClick={() => setFilterTagsExpanded(false)}
+                          style={{ fontStyle: "italic" }}
+                        >
+                          −
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -1607,7 +1665,8 @@ export default function App() {
                         onClick={() => toggleSessionTag(s.id, tag.id, (s.tags || []).map((t) => t.id))}
                         title="Retirer"
                       >
-                        {tag.emoji} {tag.name}
+                        <span className="tag-label">{tag.emoji} {tag.name}</span>
+                        <span className="tag-remove">✕</span>
                       </span>
                     ))}
                     <div className="tag-add-wrap">
@@ -1924,7 +1983,7 @@ export default function App() {
       </div>
 
       {/* ─── VERSION FOOTER ──────────────────────── */}
-      <div className="version-footer">v0.5.2</div>
+      <div className="version-footer">v0.5.3</div>
     </div>
   );
 }
