@@ -1490,14 +1490,17 @@ export default function App() {
                         <span
                           style={{
                             position: "absolute", left: 0, top: 0, bottom: 0,
-                            width: `${importProgress}%`,
-                            background: "rgba(0,0,0,0.2)",
+                            width: importProgress < 0 ? "100%" : `${importProgress}%`,
+                            background: importProgress < 0 ? "rgba(0,0,0,0.1)" : "rgba(0,0,0,0.2)",
                             transition: "width 0.3s",
+                            animation: importProgress < 0 ? "pulse 1.5s infinite" : "none",
                           }}
                         />
                       )}
                       <span style={{ position: "relative" }}>
-                        {importUploading ? `Upload ${importProgress}%` : "Uploader"}
+                        {importUploading
+                          ? (importProgress < 0 ? "Upload en cours..." : `Upload ${importProgress}%`)
+                          : "Uploader"}
                       </span>
                     </button>
                   )}

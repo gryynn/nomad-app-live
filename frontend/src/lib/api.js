@@ -1,3 +1,5 @@
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabase.js";
+
 const BASE = import.meta.env.VITE_API_URL || "";
 
 async function request(path, options = {}) {
@@ -72,60 +74,113 @@ export const addMark = (id, time, label = null) =>
     body: JSON.stringify({ time, label }),
   });
 
-// Upload: try direct-to-storage first, fallback to backend proxy
+// ─── Upload strategies ─────────────────────────────────
+// Strategy 1: Direct to Supabase Storage via XHR (with progress)
+// Strategy 2: Direct via Supabase JS client (no progress but reliable)
+// Strategy 3: Backend proxy (slowest, goes through backend + Cloudflare)
+
+const MIME_MAP = {
+  wav: "audio/wav", mp3: "audio/mpeg", m4a: "audio/mp4",
+  webm: "audio/webm", ogg: "audio/ogg", flac: "audio/flac",
+};
+
+function getFileExt(name) {
+  return (name || "").split(".").pop().toLowerCase();
+}
+
+async function uploadDirectXHR(file, storagePath, contentType, onProgress) {
+  // XHR PUT to Supabase Storage REST API with anon key — supports progress
+  const url = `${SUPABASE_URL}/storage/v1/object/nomad-audio/${storagePath}`;
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.setRequestHeader("Authorization", `Bearer ${SUPABASE_ANON_KEY}`);
+    xhr.setRequestHeader("apikey", SUPABASE_ANON_KEY);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.setRequestHeader("x-upsert", "true");
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        console.log(`[UPLOAD] Direct XHR to Supabase OK`);
+        resolve();
+      } else {
+        reject(new Error(`Storage ${xhr.status}: ${xhr.responseText}`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("Network error (CORS?)"));
+    xhr.ontimeout = () => reject(new Error("Upload timeout"));
+    xhr.timeout = 3600000; // 1h for huge files
+    xhr.send(file);
+  });
+}
+
+async function uploadDirectClient(file, storagePath, contentType) {
+  // Supabase JS client — handles auth/CORS automatically
+  const { error } = await supabase.storage
+    .from("nomad-audio")
+    .upload(storagePath, file, { contentType, upsert: true });
+  if (error) throw error;
+  console.log(`[UPLOAD] Supabase client upload OK`);
+}
+
 export const uploadAudio = async (file, onProgress) => {
   const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-  console.log(`[UPLOAD] ${file.name} (${sizeMB} MB)`);
+  const ext = getFileExt(file.name);
+  const contentType = MIME_MAP[ext] || "audio/mpeg";
+  const sessionId = crypto.randomUUID();
+  const storagePath = `martun/${sessionId}.${ext}`;
+  console.log(`[UPLOAD] ${file.name} (${sizeMB} MB) → ${storagePath}`);
 
-  // Try direct upload via signed URL (faster, no backend bottleneck)
-  try {
-    const init = await request("/api/upload/init", {
-      method: "POST",
-      body: JSON.stringify({ filename: file.name, size: file.size }),
-    });
-    console.log(`[UPLOAD] Signed URL OK, uploading direct to storage...`);
+  // ── Strategy 1: Direct XHR to Supabase (with progress) ──
+  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+    try {
+      await uploadDirectXHR(file, storagePath, contentType, onProgress);
+      // Create session record via backend
+      const result = await request("/api/upload/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          session_id: sessionId,
+          storage_path: storagePath,
+          filename: file.name,
+          size: file.size,
+        }),
+      });
+      return result;
+    } catch (e) {
+      console.warn(`[UPLOAD] Direct XHR failed: ${e.message}`);
+    }
 
-    await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("PUT", init.upload_url);
-      xhr.setRequestHeader("Content-Type", init.content_type);
-
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable && onProgress) {
-          onProgress(Math.round((e.loaded / e.total) * 100));
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          console.log(`[UPLOAD] Direct storage upload OK`);
-          resolve();
-        } else {
-          reject(new Error(`Storage ${xhr.status}`));
-        }
-      };
-
-      xhr.onerror = () => reject(new Error("CORS/network"));
-      xhr.ontimeout = () => reject(new Error("timeout"));
-      xhr.timeout = 3600000;
-      xhr.send(file);
-    });
-
-    const result = await request("/api/upload/complete", {
-      method: "POST",
-      body: JSON.stringify({
-        session_id: init.session_id,
-        storage_path: init.storage_path,
-        filename: file.name,
-        size: file.size,
-      }),
-    });
-    return result;
-  } catch (directErr) {
-    console.warn(`[UPLOAD] Direct upload failed (${directErr.message}), falling back to backend proxy...`);
+    // ── Strategy 2: Supabase JS client (no progress) ──
+    if (supabase) {
+      try {
+        if (onProgress) onProgress(-1); // signal indeterminate
+        await uploadDirectClient(file, storagePath, contentType);
+        const result = await request("/api/upload/complete", {
+          method: "POST",
+          body: JSON.stringify({
+            session_id: sessionId,
+            storage_path: storagePath,
+            filename: file.name,
+            size: file.size,
+          }),
+        });
+        if (onProgress) onProgress(100);
+        return result;
+      } catch (e) {
+        console.warn(`[UPLOAD] Supabase client failed: ${e.message}`);
+      }
+    }
   }
 
-  // Fallback: upload through backend with progress
+  // ── Strategy 3: Backend proxy (with progress) ──
+  console.log(`[UPLOAD] Falling back to backend proxy...`);
   return new Promise((resolve, reject) => {
     const formData = new FormData();
     formData.append("file", file);
@@ -152,8 +207,8 @@ export const uploadAudio = async (file, onProgress) => {
       }
     };
 
-    xhr.onerror = () => reject(new Error("Connexion perdue. Vérifiez votre réseau."));
-    xhr.ontimeout = () => reject(new Error("Upload timeout — fichier trop volumineux pour cette méthode."));
+    xhr.onerror = () => reject(new Error("Connexion perdue pendant upload."));
+    xhr.ontimeout = () => reject(new Error("Upload timeout — essayez avec un fichier plus petit."));
     xhr.timeout = 600000; // 10 min
     xhr.send(formData);
   });

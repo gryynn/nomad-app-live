@@ -11,8 +11,7 @@ services:
       - "traefik.http.routers.nomad.rule=Host(`recorder.mgdesign.cloud`)"
       - "traefik.http.routers.nomad.tls=true"
       - "traefik.http.services.nomad.loadbalancer.server.port=8400"
-      - "traefik.http.middlewares.nomad-body.buffering.maxRequestBodyBytes=524288000"
-      - "traefik.http.routers.nomad.middlewares=nomad-body"
+      - "traefik.http.services.nomad.loadbalancer.server.scheme=http"
     networks:
       - traefik_proxy
     restart: unless-stopped
@@ -21,6 +20,9 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+      args:
+        - VITE_SUPABASE_URL=${SUPABASE_URL}
+        - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
     container_name: nomad-frontend
     labels:
       - "traefik.enable=true"

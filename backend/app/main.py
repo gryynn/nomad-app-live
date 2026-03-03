@@ -12,9 +12,11 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://recorder.mgdesign.cloud",
         "https://nomad.green-lab.local",
         "https://nomad.mgdesign.cloud",
         "http://localhost:5173",
+        "http://localhost:5174",
     ],
     allow_credentials=True,
     allow_methods=["*"],
