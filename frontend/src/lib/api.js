@@ -72,26 +72,43 @@ export const addMark = (id, time, label = null) =>
     body: JSON.stringify({ time, label }),
   });
 
-// Upload
-export const uploadAudio = (file) => {
+// Upload with progress tracking
+export const uploadAudio = (file, onProgress) => {
   const formData = new FormData();
   formData.append("file", file);
   const sizeMB = (file.size / 1024 / 1024).toFixed(1);
   console.log(`[API] POST /api/upload (${file.name}, ${sizeMB} MB)`);
-  return fetch(`${BASE}/api/upload`, { method: "POST", body: formData }).then(
-    async (r) => {
-      const contentType = r.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        console.error(`[API] Upload returned non-JSON (${r.status}): ${contentType}`);
-        if (r.status === 413) throw new Error(`Fichier trop volumineux (${sizeMB} MB). Limite serveur dépassée.`);
-        throw new Error(`Erreur serveur (${r.status}). Le backend est peut-être inaccessible.`);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${BASE}/api/upload`);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
       }
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.detail || "Upload failed");
-      console.log(`[API] Upload OK`, data);
-      return data;
-    }
-  );
+    };
+
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          console.log(`[API] Upload OK`, data);
+          resolve(data);
+        } else {
+          reject(new Error(data.detail || `Upload failed (${xhr.status})`));
+        }
+      } catch {
+        if (xhr.status === 413) reject(new Error(`Fichier trop volumineux (${sizeMB} MB). Limite serveur dépassée.`));
+        else reject(new Error(`Erreur serveur (${xhr.status}).`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("Connexion perdue pendant l'upload."));
+    xhr.ontimeout = () => reject(new Error("Upload timeout — fichier trop volumineux ?"));
+    xhr.timeout = 600000; // 10 min
+    xhr.send(formData);
+  });
 };
 
 // Tags

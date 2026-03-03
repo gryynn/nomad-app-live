@@ -366,6 +366,20 @@ label {
   z-index: 50;
   box-shadow: 0 4px 16px rgba(0,0,0,0.6);
 }
+.tag-popover-search {
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+.tag-popover-search::placeholder {
+  color: var(--text-soft);
+}
 .tag-popover-item {
   padding: 6px 10px;
   font-size: 12px;

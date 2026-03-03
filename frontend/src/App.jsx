@@ -63,6 +63,7 @@ export default function App() {
   // Import state
   const [importFile, setImportFile] = useState(null);
   const [importUploading, setImportUploading] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
 
   // Recording state (shared by REC and LIVE)
   const [recMode, setRecMode] = useState(null); // "rec" or "live"
@@ -90,6 +91,7 @@ export default function App() {
   const [editingTitleValue, setEditingTitleValue] = useState("");
   // Tag popover (add tags from header)
   const [tagPopoverId, setTagPopoverId] = useState(null);
+  const [tagPopoverSearch, setTagPopoverSearch] = useState("");
 
   // Session notes (expanded detail)
   const sessionNotesRef = useRef(null);
@@ -219,6 +221,21 @@ export default function App() {
     return () => clearTimeout(filterSearchTimer.current);
   }, [filterSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Close popovers on click outside
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (tagPopoverId && !e.target.closest(".tag-add-wrap")) {
+        setTagPopoverId(null);
+        setTagPopoverSearch("");
+      }
+      if (showDateRange && !e.target.closest(".date-range-popover") && !e.target.closest(".filter-chip")) {
+        setShowDateRange(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [tagPopoverId, showDateRange]);
+
   // Auto-clear messages
   useEffect(() => {
     if (success) { const t = setTimeout(() => setSuccess(null), 4000); return () => clearTimeout(t); }
@@ -325,9 +342,10 @@ export default function App() {
   async function handleImportUpload() {
     if (!importFile) { setError("Aucun fichier sélectionné"); return; }
     setImportUploading(true);
+    setImportProgress(0);
     setError(null);
     try {
-      const result = await api.uploadAudio(importFile);
+      const result = await api.uploadAudio(importFile, (pct) => setImportProgress(pct));
       console.log("Upload result:", result);
       setSuccess(`Fichier "${importFile.name}" uploadé`);
       setImportFile(null);
@@ -337,6 +355,7 @@ export default function App() {
       setError(`Erreur upload: ${e.message}`);
     } finally {
       setImportUploading(false);
+      setImportProgress(0);
     }
   }
 
@@ -837,22 +856,25 @@ export default function App() {
       setSessionTagSuggestions([]);
       setSessionTagSuggestPos(null);
     }
-    // Sync hashtags → tag chips (debounced to avoid API spam)
+    // Sync hashtags → tag chips (debounced, bidirectional: add AND remove)
     if (pendingTagSyncRef.current) clearTimeout(pendingTagSyncRef.current);
     pendingTagSyncRef.current = setTimeout(async () => {
       if (!expandedId || !expandedSession) return;
       const noteHashtags = extractHashtags(text);
-      const currentTagIds = (expandedSession.tags || []).map((t) => t.id);
       const matchingTagIds = tags.filter((t) => noteHashtags.includes(t.name.toLowerCase())).map((t) => t.id);
-      const newIds = [...new Set([...currentTagIds, ...matchingTagIds])];
-      if (newIds.length > currentTagIds.length) {
-        try {
-          const updated = await api.setSessionTags(expandedId, newIds);
-          setExpandedSession(updated);
-          await loadTags();
-        } catch (e) {
+      const currentTagIds = (expandedSession.tags || []).map((t) => t.id);
+      const sortedCurrent = [...currentTagIds].sort().join(",");
+      const sortedNew = [...matchingTagIds].sort().join(",");
+      if (sortedCurrent !== sortedNew) {
+        // Optimistic UI
+        const newTagObjects = matchingTagIds.map((id) => tags.find((t) => t.id === id)).filter(Boolean);
+        setExpandedSession((prev) => prev ? { ...prev, tags: newTagObjects } : prev);
+        setSessions((prev) =>
+          prev.map((s) => s.id === expandedId ? { ...s, tags: newTagObjects } : s)
+        );
+        api.setSessionTags(expandedId, matchingTagIds).then(() => loadTags()).catch((e) => {
           console.error("[TAG-SYNC] failed:", e);
-        }
+        });
       }
     }, 1500);
   }
@@ -880,21 +902,26 @@ export default function App() {
     if (!sessionNotesText.trim()) return;
     try {
       await api.replaceNotes(sessionId, sessionNotesText.trim());
-      // Apply #tags from notes to session, auto-create missing ones
+      // Sync tags from notes hashtags (bidirectional: add new, remove absent)
       const hashtags = extractHashtags(sessionNotesText);
-      if (hashtags.length > 0) {
-        const sessionTagIds = (expandedSession.tags || []).map((t) => t.id);
-        const newTagIds = await ensureTagsExist(hashtags);
-        const mergedIds = [...new Set([...sessionTagIds, ...newTagIds])];
-        if (mergedIds.length > sessionTagIds.length) {
-          await api.setSessionTags(sessionId, mergedIds);
-        }
+      const newTagIds = hashtags.length > 0 ? await ensureTagsExist(hashtags) : [];
+      const currentTagIds = (expandedSession.tags || []).map((t) => t.id);
+      const sortedCurrent = [...currentTagIds].sort().join(",");
+      const sortedNew = [...newTagIds].sort().join(",");
+      if (sortedCurrent !== sortedNew) {
+        await api.setSessionTags(sessionId, newTagIds);
       }
+      // Optimistic UI update
+      const newTagObjects = newTagIds.map((id) => tags.find((t) => t.id === id)).filter(Boolean);
+      setSessions((prev) =>
+        prev.map((s) => s.id === sessionId ? { ...s, tags: newTagObjects } : s)
+      );
       setSessionNotesDirty(false);
       const detail = await api.getSession(sessionId);
       setExpandedSession(detail);
       const updatedNotes = (detail.notes || []).map((n) => n.content).join("\n");
       setSessionNotesText(updatedNotes);
+      loadTags();
       setSuccess("Notes sauvegardées");
     } catch (e) {
       setError(`Erreur: ${e.message}`);
@@ -1450,9 +1477,21 @@ export default function App() {
                       className="btn btn-primary"
                       onClick={handleImportUpload}
                       disabled={importUploading}
-                      style={{ flex: 1 }}
+                      style={{ flex: 1, position: "relative", overflow: "hidden" }}
                     >
-                      {importUploading ? "Upload en cours..." : "Uploader"}
+                      {importUploading && (
+                        <span
+                          style={{
+                            position: "absolute", left: 0, top: 0, bottom: 0,
+                            width: `${importProgress}%`,
+                            background: "rgba(0,0,0,0.2)",
+                            transition: "width 0.3s",
+                          }}
+                        />
+                      )}
+                      <span style={{ position: "relative" }}>
+                        {importUploading ? `Upload ${importProgress}%` : "Uploader"}
+                      </span>
                     </button>
                   )}
                   <button className="btn btn-ghost" onClick={() => { setMode(null); setImportFile(null); }}>
@@ -1716,43 +1755,69 @@ export default function App() {
                     <div className="tag-add-wrap">
                       <span
                         className="tag-chip tag-create"
-                        onClick={() => setTagPopoverId(tagPopoverId === s.id ? null : s.id)}
+                        onClick={() => { setTagPopoverId(tagPopoverId === s.id ? null : s.id); setTagPopoverSearch(""); }}
                       >+</span>
-                      {tagPopoverId === s.id && (
-                        <div className="tag-popover">
-                          {tags.filter((t) => !(s.tags || []).find((st) => st.id === t.id)).map((tag) => (
-                            <div
-                              key={tag.id}
-                              className="tag-popover-item"
-                              onClick={() => {
-                                toggleSessionTag(s.id, tag.id, (s.tags || []).map((t) => t.id));
-                                setTagPopoverId(null);
-                              }}
-                            >
-                              {tag.emoji} {tag.name}
-                            </div>
-                          ))}
-                          <div
-                            className="tag-popover-item tag-popover-create"
-                            onClick={async () => {
-                              const name = prompt("Nouveau tag :");
-                              if (!name?.trim()) return;
-                              try {
-                                const newTag = await api.createTag({ name: name.trim(), emoji: "🏷️" });
-                                await loadTags();
-                                const currentIds = (s.tags || []).map((t) => t.id);
-                                await api.setSessionTags(s.id, [...currentIds, newTag.id]);
-                                await loadSessions();
-                              } catch (e) {
-                                setError(`Erreur: ${e.message}`);
-                              }
-                              setTagPopoverId(null);
-                            }}
-                          >
-                            + Créer un tag...
+                      {tagPopoverId === s.id && (() => {
+                        const available = tags.filter((t) => !(s.tags || []).find((st) => st.id === t.id));
+                        const filtered = tagPopoverSearch
+                          ? available.filter((t) => t.name.toLowerCase().includes(tagPopoverSearch.toLowerCase()))
+                          : available;
+                        const showCreate = tagPopoverSearch && !tags.find((t) => t.name.toLowerCase() === tagPopoverSearch.toLowerCase());
+                        return (
+                          <div className="tag-popover">
+                            <input
+                              className="tag-popover-search"
+                              type="text"
+                              placeholder="Chercher / créer..."
+                              value={tagPopoverSearch}
+                              onChange={(e) => setTagPopoverSearch(e.target.value)}
+                              autoFocus
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            {filtered.map((tag) => (
+                              <div
+                                key={tag.id}
+                                className="tag-popover-item"
+                                onClick={() => {
+                                  toggleSessionTag(s.id, tag.id, (s.tags || []).map((t) => t.id));
+                                  setTagPopoverId(null);
+                                  setTagPopoverSearch("");
+                                }}
+                              >
+                                {tag.emoji} {tag.name}
+                              </div>
+                            ))}
+                            {showCreate && (
+                              <div
+                                className="tag-popover-item tag-popover-create"
+                                onClick={async () => {
+                                  const name = tagPopoverSearch.trim();
+                                  if (!name) return;
+                                  try {
+                                    const newTag = await api.createTag({ name, emoji: "🏷️" });
+                                    await loadTags();
+                                    const currentIds = (s.tags || []).map((t) => t.id);
+                                    const newTagObjects = [...(s.tags || []), newTag];
+                                    setSessions((prev) => prev.map((ss) => ss.id === s.id ? { ...ss, tags: newTagObjects } : ss));
+                                    api.setSessionTags(s.id, [...currentIds, newTag.id]);
+                                  } catch (e) {
+                                    setError(`Erreur: ${e.message}`);
+                                  }
+                                  setTagPopoverId(null);
+                                  setTagPopoverSearch("");
+                                }}
+                              >
+                                + Créer "{tagPopoverSearch.trim()}"
+                              </div>
+                            )}
+                            {filtered.length === 0 && !showCreate && (
+                              <div className="tag-popover-item" style={{ color: "var(--text-soft)", fontStyle: "italic" }}>
+                                Aucun tag
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   </div>
                   <span className={`chevron ${expandedId === s.id ? "open" : ""}`}>&#9656;</span>

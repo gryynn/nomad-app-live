@@ -11,6 +11,8 @@ services:
       - "traefik.http.routers.nomad.rule=Host(`recorder.mgdesign.cloud`)"
       - "traefik.http.routers.nomad.tls=true"
       - "traefik.http.services.nomad.loadbalancer.server.port=8400"
+      - "traefik.http.middlewares.nomad-body.buffering.maxRequestBodyBytes=524288000"
+      - "traefik.http.routers.nomad.middlewares=nomad-body"
     networks:
       - traefik_proxy
     restart: unless-stopped

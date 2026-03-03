@@ -7,7 +7,7 @@ from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 router = APIRouter(prefix="/upload", tags=["upload"])
 
 # Allowed audio file extensions
-ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".webm", ".ogg"}
+ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".webm", ".ogg", ".flac"}
 
 
 HEADERS = {
@@ -54,7 +54,7 @@ async def upload_audio(file: UploadFile = File(...)):
         file_content = await file.read()
         file_size = len(file_content)
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
             # Upload to Supabase Storage bucket "nomad-audio"
             storage_headers = {
                 "apikey": SUPABASE_SERVICE_KEY,
