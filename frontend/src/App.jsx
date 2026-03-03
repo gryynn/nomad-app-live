@@ -688,12 +688,15 @@ export default function App() {
     setTranscriptViewMode("plain");
     setPlayerPlaying(false);
     setPlayerTime(0);
-    setPlayerDuration(0);
     waveformDataRef.current = null;
     setSessionTagSuggestions([]);
+    // Pre-set duration from session data so seek works immediately
+    const sessionData = sessions.find((s) => s.id === id);
+    setPlayerDuration(sessionData?.duration_seconds || 0);
     try {
       const detail = await api.getSession(id);
       setExpandedSession(detail);
+      if (detail.duration_seconds) setPlayerDuration(detail.duration_seconds);
       setEditingTranscript(detail.transcript || "");
       const existingNotes = (detail.notes || []).map((n) => n.content).join("\n");
       setSessionNotesText(existingNotes);
@@ -927,13 +930,21 @@ export default function App() {
   function seekFromEvent(e) {
     const a = audioPlayerRef.current;
     const track = playerProgressRef.current;
-    if (!a || !playerDuration || !isFinite(playerDuration) || !track) return;
+    if (!a || !track) return;
+    // Use best available duration: audio element > state > fallback
+    const dur = (a.duration && isFinite(a.duration) && a.duration > 0)
+      ? a.duration
+      : (playerDuration && isFinite(playerDuration) && playerDuration > 0)
+        ? playerDuration
+        : 0;
+    if (!dur) return;
     const rect = track.getBoundingClientRect();
     const clientX = e.clientX ?? e.touches?.[0]?.clientX;
     if (clientX == null) return;
     const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    a.currentTime = pct * playerDuration;
+    a.currentTime = pct * dur;
     setPlayerTime(a.currentTime);
+    if (dur !== playerDuration) setPlayerDuration(dur);
   }
 
   function handlePlayerSeek(e) {

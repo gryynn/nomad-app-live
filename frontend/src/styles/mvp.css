@@ -390,17 +390,17 @@ label {
   gap: 4px;
   padding: 4px 10px;
   border-radius: 20px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: 1px solid transparent;
+  background: var(--surface2);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
   user-select: none;
 }
-.tag-chip:hover { border-color: #444; }
+.tag-chip:hover { background: var(--surface); border-color: var(--border); }
 .tag-chip.selected {
-  border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.08);
   color: var(--accent);
 }
 .tags-available .tag-chip {
@@ -876,7 +876,7 @@ label {
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
-  background: var(--surface);
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: 10px;
