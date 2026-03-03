@@ -304,6 +304,13 @@ label {
   color: var(--text-soft);
   margin-top: 2px;
 }
+.session-duration {
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  color: var(--text-soft);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .session-header .chevron {
   color: var(--text-soft);
   font-size: 12px;

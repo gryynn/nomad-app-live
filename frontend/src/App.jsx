@@ -12,8 +12,10 @@ function formatDate(iso) {
 
 function formatDuration(sec) {
   if (!sec) return "";
-  const m = Math.floor(sec / 60);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
+  if (h > 0) return `${h}h${String(m).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
@@ -1716,6 +1718,9 @@ export default function App() {
               <div key={s.id} className="session-item">
                 <div className="session-header" onClick={() => toggleExpand(s.id)}>
                   <span className="emoji">{inputModeEmoji(s.input_mode)}</span>
+                  {s.duration_seconds > 0 && (
+                    <span className="session-duration">{formatDuration(s.duration_seconds)}</span>
+                  )}
                   <div className="info">
                     {editingTitleId === s.id ? (
                       <input
