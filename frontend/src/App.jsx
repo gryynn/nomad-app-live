@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import * as api from "./lib/api.js";
 import useSpeechRecognition from "./hooks/useSpeechRecognition.js";
 import { useOfflineSync } from "./hooks/useOfflineSync.js";
+import { useChunkUploader } from "./hooks/useChunkUploader.js";
 
 // ─── Helpers ──────────────────────────────────────────
 function formatDate(iso) {
@@ -85,6 +86,16 @@ export default function App() {
   const recNotesRef = useRef(null);
   const cancelledRef = useRef(false);
 
+  // Progressive chunk save refs
+  const recordingIdRef = useRef(null);
+  const flushSeqRef = useRef(0);
+  const flushTimerRef = useRef(null);
+  const recMimeTypeRef = useRef("audio/webm");
+  const recNotesTextRef = useRef(""); // mirror for timer access
+
+  // Recovery state
+  const [recoveryData, setRecoveryData] = useState(null);
+
   // Engine selection
   const [selectedEngine, setSelectedEngine] = useState("auto");
 
@@ -155,6 +166,7 @@ export default function App() {
 
   // Offline sync
   const offline = useOfflineSync();
+  const chunkUploader = useChunkUploader();
   const [syncPanelOpen, setSyncPanelOpen] = useState(false);
   const [syncPanelItems, setSyncPanelItems] = useState([]);
   const [syncingItemId, setSyncingItemId] = useState(null);
@@ -276,6 +288,14 @@ export default function App() {
       }
       if (result && result.failed > 0) {
         setError(`Sync: ${result.failed} échec(s) — ${result.errors.join(", ")}`);
+      }
+    });
+    // Recovery: detect orphaned recordings from crash
+    offline.getOrphanedRecordings().then((orphaned) => {
+      if (orphaned.length > 0) {
+        const rec = orphaned[0]; // recover first one
+        console.log("[RECOVERY] Found orphaned recording:", rec);
+        setRecoveryData(rec);
       }
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -446,17 +466,35 @@ export default function App() {
         }
       };
 
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
         if (cancelledRef.current) {
           cancelledRef.current = false;
+          // Clean up chunk data on cancel
+          if (recordingIdRef.current) {
+            offline.clearRecordingChunks(recordingIdRef.current);
+          }
+          recordingIdRef.current = null;
           setRecMode(null);
           setMode(null);
           return;
         }
-        const blob = new Blob(chunksRef.current, { type: mimeType || "audio/webm" });
         const durationSec = Math.round((Date.now() - startTimeRef.current) / 1000);
-        console.log(`[REC] stopped: ${blob.size} bytes, ${durationSec}s, mode=${captureMode}, chunks=${chunksRef.current.length}`);
+
+        // Flush remaining chunks in RAM → IDB + upload
+        if (chunksRef.current.length > 0) {
+          const lastSnapshot = new Blob(chunksRef.current, { type: mimeType || "audio/webm" });
+          chunksRef.current = [];
+          const seq = flushSeqRef.current++;
+          await offline.flushChunkSnapshot(recordingIdRef.current, seq, lastSnapshot);
+          chunkUploader.uploadChunk(recordingIdRef.current, seq, lastSnapshot);
+          console.log(`[FLUSH] final chunk #${seq}, ${(lastSnapshot.size / 1024).toFixed(0)} KB`);
+        }
+
+        // Assemble blob from IDB (always available as fallback)
+        const assembledBlob = await offline.assembleRecording(recordingIdRef.current, mimeType || "audio/webm");
+        const blob = assembledBlob || new Blob([], { type: mimeType || "audio/webm" });
+        console.log(`[REC] stopped: ${blob.size} bytes, ${durationSec}s, mode=${captureMode}, flushSeq=${flushSeqRef.current}`);
         setPendingBlob(blob);
         setPendingDuration(durationSec);
         setShowReview(true);
@@ -474,6 +512,30 @@ export default function App() {
       setTagSuggestions([]);
       cancelledRef.current = false;
       startTimeRef.current = Date.now();
+
+      // Progressive chunk save: init
+      const recId = "rec_" + Date.now();
+      recordingIdRef.current = recId;
+      flushSeqRef.current = 0;
+      recNotesTextRef.current = "";
+      recMimeTypeRef.current = mimeType || "audio/webm";
+      chunkUploader.reset();
+      offline.startActiveRecording(recId, captureMode, mimeType || "audio/webm");
+
+      // Flush timer: every 30s, snapshot chunks → IDB + upload
+      flushTimerRef.current = setInterval(() => {
+        if (chunksRef.current.length === 0) return;
+        const snapshot = new Blob(chunksRef.current, { type: recMimeTypeRef.current });
+        chunksRef.current = []; // free RAM
+        const seq = flushSeqRef.current++;
+        offline.flushChunkSnapshot(recId, seq, snapshot);
+        chunkUploader.uploadChunk(recId, seq, snapshot);
+        // Persist notes/transcript metadata
+        offline.updateActiveRecordingMeta(recId, {
+          notes: recNotesTextRef.current,
+        });
+        console.log(`[FLUSH] chunk #${seq}, ${(snapshot.size / 1024).toFixed(0)} KB`);
+      }, 30_000);
 
       timerRef.current = setInterval(() => {
         setRecTime(Date.now() - startTimeRef.current);
@@ -493,12 +555,25 @@ export default function App() {
         timerRef.current = setInterval(() => {
           setRecTime(Date.now() - startTimeRef.current);
         }, 100);
+        // Resume flush timer
+        const recId = recordingIdRef.current;
+        flushTimerRef.current = setInterval(() => {
+          if (chunksRef.current.length === 0) return;
+          const snapshot = new Blob(chunksRef.current, { type: recMimeTypeRef.current });
+          chunksRef.current = [];
+          const seq = flushSeqRef.current++;
+          offline.flushChunkSnapshot(recId, seq, snapshot);
+          chunkUploader.uploadChunk(recId, seq, snapshot);
+          offline.updateActiveRecordingMeta(recId, { notes: recNotesTextRef.current });
+          console.log(`[FLUSH] chunk #${seq}, ${(snapshot.size / 1024).toFixed(0)} KB`);
+        }, 30_000);
         if (recMode === "live") speech.resume("fr-FR");
         setIsPaused(false);
       } else {
         // Pause: save elapsed time and stop the interval
         mediaRecorderRef.current.pause();
         clearInterval(timerRef.current);
+        clearInterval(flushTimerRef.current);
         pausedTimeRef.current = Date.now() - startTimeRef.current;
         if (recMode === "live") speech.pause();
         setIsPaused(true);
@@ -509,6 +584,7 @@ export default function App() {
   function stopRecording() {
     if (mediaRecorderRef.current) {
       clearInterval(timerRef.current);
+      clearInterval(flushTimerRef.current);
       // Cleanup animation
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
@@ -558,6 +634,7 @@ export default function App() {
     if (mediaRecorderRef.current) {
       cancelledRef.current = true;
       clearInterval(timerRef.current);
+      clearInterval(flushTimerRef.current);
       if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
       if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; analyserRef.current = null; }
       speech.stop();
@@ -602,6 +679,7 @@ export default function App() {
   function handleNotesChange(e) {
     const text = e.target.value;
     setRecNotesText(text);
+    recNotesTextRef.current = text;
     const cursor = e.target.selectionStart;
     const beforeCursor = text.slice(0, cursor);
     const hashMatch = beforeCursor.match(/#([\p{L}\p{N}_.\-]*)$/u);
@@ -648,6 +726,8 @@ export default function App() {
     const ext = pendingBlob.type.includes("mp4") ? "mp4" : "webm";
     const fileName = `${recMode}_${Date.now()}.${ext}`;
     const offlineId = `rec_${Date.now()}`;
+    const recId = recordingIdRef.current;
+    const totalChunks = flushSeqRef.current;
 
     // Save-first: always persist to IndexedDB before attempting upload
     const offlineItem = {
@@ -671,29 +751,65 @@ export default function App() {
     }
 
     try {
-      // 1. Upload audio
-      const file = new File([pendingBlob], fileName, { type: pendingBlob.type });
-      console.log("[SAVE] uploading file:", file.name, file.size, "bytes");
-      const result = await api.uploadAudio(file);
-      console.log("[SAVE] upload result:", result);
-      const sessionId = result.session_id;
+      let sessionId;
+      let assemblyUsed = false;
 
-      // 2. Update session metadata
-      const updates = { input_mode: recMode };
-      if (recTitle.trim()) updates.title = recTitle.trim();
-      if (pendingDuration) updates.duration_seconds = pendingDuration;
-      if (recMode === "live" && livePreviewText) {
-        updates.transcript = livePreviewText;
-        updates.status = "transcribed";
+      // Try server-side assembly if chunks were uploaded
+      if (recId && totalChunks > 0) {
+        try {
+          // Wait for all chunk uploads to complete
+          await chunkUploader.waitForAllUploads();
+          const failed = chunkUploader.getFailedChunks();
+
+          if (failed.length === 0) {
+            // All chunks uploaded — use server-side assembly
+            console.log(`[SAVE] All ${totalChunks} chunks uploaded, requesting assembly`);
+            const assembleResult = await api.assembleChunks({
+              session_id: recId,
+              chunk_count: totalChunks,
+              mime_type: pendingBlob.type || "audio/webm",
+              title: recTitle.trim(),
+              notes: recNotesText.trim(),
+              duration_seconds: pendingDuration,
+              input_mode: recMode,
+              live_transcript: recMode === "live" ? livePreviewText : "",
+            });
+            sessionId = assembleResult.session_id;
+            assemblyUsed = true;
+            console.log("[SAVE] Server-side assembly OK:", assembleResult);
+          } else {
+            console.warn(`[SAVE] ${failed.length} chunks failed upload, falling back to direct upload`);
+          }
+        } catch (assembleErr) {
+          console.warn("[SAVE] Assembly failed, falling back to direct upload:", assembleErr.message);
+        }
       }
-      await api.updateSession(sessionId, updates);
 
-      // 3. Save notes
-      if (recNotesText.trim()) {
-        await api.addNote(sessionId, recNotesText.trim());
+      // Fallback: direct upload of assembled blob
+      if (!assemblyUsed) {
+        const file = new File([pendingBlob], fileName, { type: pendingBlob.type });
+        console.log("[SAVE] uploading file:", file.name, file.size, "bytes");
+        const result = await api.uploadAudio(file);
+        console.log("[SAVE] upload result:", result);
+        sessionId = result.session_id;
+
+        // Update session metadata
+        const updates = { input_mode: recMode };
+        if (recTitle.trim()) updates.title = recTitle.trim();
+        if (pendingDuration) updates.duration_seconds = pendingDuration;
+        if (recMode === "live" && livePreviewText) {
+          updates.transcript = livePreviewText;
+          updates.status = "transcribed";
+        }
+        await api.updateSession(sessionId, updates);
+
+        // Save notes
+        if (recNotesText.trim()) {
+          await api.addNote(sessionId, recNotesText.trim());
+        }
       }
 
-      // 4. Extract tags from notes, auto-create missing ones, and apply to session
+      // Extract tags from notes, auto-create missing ones, and apply to session
       const hashtags = extractHashtags(recNotesText);
       if (hashtags.length > 0) {
         const tagIds = await ensureTagsExist(hashtags);
@@ -702,7 +818,7 @@ export default function App() {
         }
       }
 
-      // 5. Optionally trigger transcription
+      // Optionally trigger transcription
       if (doTranscribe) {
         console.log("[SAVE] triggering transcription, engine:", selectedEngine);
         const trResult = await api.transcribe(sessionId, selectedEngine);
@@ -712,10 +828,11 @@ export default function App() {
         setSuccess("Session sauvegardée");
       }
 
-      // Upload succeeded → remove from IndexedDB
+      // Upload succeeded → clean up
       await offline.removePendingItem({ id: offlineId, _store: "recording" });
+      if (recId) await offline.clearRecordingChunks(recId);
 
-      // Cleanup
+      // Reset
       setPendingBlob(null);
       setShowReview(false);
       setRecTitle("");
@@ -727,6 +844,7 @@ export default function App() {
       setRecMode(null);
       setMode(null);
       setTagSuggestions([]);
+      recordingIdRef.current = null;
       await loadSessions();
     } catch (e) {
       // Upload failed — blob is already safe in IndexedDB
@@ -749,12 +867,17 @@ export default function App() {
       setRecMode(null);
       setMode(null);
       setTagSuggestions([]);
+      recordingIdRef.current = null;
     } finally {
       setReviewSaving(false);
     }
   }
 
   function handleDiscardReview() {
+    // Clean up chunks from IDB
+    if (recordingIdRef.current) {
+      offline.clearRecordingChunks(recordingIdRef.current);
+    }
     setPendingBlob(null);
     setShowReview(false);
     setRecTitle("");
@@ -766,6 +889,7 @@ export default function App() {
     setRecMode(null);
     setMode(null);
     setTagSuggestions([]);
+    recordingIdRef.current = null;
     setSuccess("Enregistrement annulé");
   }
 
@@ -1184,6 +1308,37 @@ export default function App() {
     if (waveformDataRef.current) drawWaveform();
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ─── Recovery handlers ──────────────────────────────
+  async function handleRecoverRecording() {
+    if (!recoveryData) return;
+    try {
+      const blob = await offline.assembleRecording(recoveryData.id, recoveryData.mimeType || "audio/webm");
+      if (!blob || blob.size === 0) {
+        setError("Aucune donnée récupérable");
+        await offline.clearRecordingChunks(recoveryData.id);
+        setRecoveryData(null);
+        return;
+      }
+      recordingIdRef.current = recoveryData.id;
+      flushSeqRef.current = recoveryData.chunkCount || 0;
+      setPendingBlob(blob);
+      setPendingDuration(0); // unknown
+      setRecMode(recoveryData.mode || "rec");
+      setShowReview(true);
+      setRecoveryData(null);
+      setSuccess(`${recoveryData.chunkCount || 0} chunk(s) récupéré(s)`);
+    } catch (e) {
+      setError(`Erreur récupération: ${e.message}`);
+    }
+  }
+
+  async function handleDiscardRecovery() {
+    if (!recoveryData) return;
+    await offline.clearRecordingChunks(recoveryData.id);
+    setRecoveryData(null);
+    setSuccess("Enregistrement orphelin supprimé");
+  }
+
   // ─── Filter helpers ────────────────────────────────
   const activeFilterCount = [
     filterStatus !== "all",
@@ -1210,6 +1365,28 @@ export default function App() {
       {/* Messages */}
       {error && <div className="error-msg">{error}</div>}
       {success && <div className="success-msg">{success}</div>}
+
+      {/* ─── RECOVERY BANNER ─────────────────────── */}
+      {recoveryData && !isRecording && !showReview && (
+        <div className="recovery-banner">
+          <div className="recovery-banner-info">
+            <div className="title">Enregistrement interrompu détecté</div>
+            <div className="meta">
+              {recoveryData.mode === "live" ? "LIVE" : "REC"}
+              {recoveryData.chunkCount > 0 && ` · ${recoveryData.chunkCount} chunk(s)`}
+              {recoveryData.startedAt && ` · ${new Date(recoveryData.startedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
+            </div>
+          </div>
+          <div className="recovery-banner-actions">
+            <button className="btn btn-sm btn-primary" style={{ width: "auto", padding: "6px 12px" }} onClick={handleRecoverRecording}>
+              Récupérer
+            </button>
+            <button className="btn btn-sm btn-ghost" style={{ padding: "6px 10px" }} onClick={handleDiscardRecovery}>
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ─── SYNC PANEL ──────────────────────────── */}
       {syncPanelOpen && (
@@ -1384,6 +1561,20 @@ export default function App() {
                 <div className="timer" style={{ color: isPaused ? "var(--orange)" : recMode === "live" ? "var(--accent)" : "var(--red)" }}>
                   {formatTimer(recTime)}
                 </div>
+
+                {/* Chunk upload indicator */}
+                {flushSeqRef.current > 0 && (
+                  <div style={{ textAlign: "center", marginBottom: 4 }}>
+                    <span className={`chunk-indicator ${
+                      chunkUploader.getFailedChunks().length > 0 ? "failed" :
+                      chunkUploader.progress.isUploading ? "uploading" : "synced"
+                    }`}>
+                      {chunkUploader.getFailedChunks().length > 0 ? "!" :
+                       chunkUploader.progress.isUploading ? "↑" : "✓"}
+                      {" "}{chunkUploader.progress.uploaded}/{chunkUploader.progress.total}
+                    </span>
+                  </div>
+                )}
 
                 <div className="waveform">
                   <canvas

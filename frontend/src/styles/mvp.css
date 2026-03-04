@@ -1210,3 +1210,60 @@ label {
   gap: 4px;
   flex-shrink: 0;
 }
+
+/* Recovery banner (crash recovery) */
+.recovery-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(255, 170, 51, 0.1);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+.recovery-banner-info {
+  flex: 1;
+  min-width: 0;
+}
+.recovery-banner-info .title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--orange);
+}
+.recovery-banner-info .meta {
+  font-size: 11px;
+  color: var(--text-soft);
+  margin-top: 2px;
+}
+.recovery-banner-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Chunk upload indicator (during recording) */
+.chunk-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.chunk-indicator.synced {
+  border-color: rgba(68, 204, 102, 0.4);
+  color: var(--green);
+}
+.chunk-indicator.uploading {
+  border-color: rgba(255, 170, 51, 0.4);
+  color: var(--orange);
+}
+.chunk-indicator.failed {
+  border-color: rgba(255, 68, 68, 0.4);
+  color: var(--red);
+}
