@@ -35,25 +35,46 @@ NOMAD is a PWA for universal audio capture and transcription. It replaces a 6-st
 
 ## Supabase Storage
 
-- Bucket: `nomad-audio`
+- Bucket: `nomad-audio` — final assembled audio files
+- Bucket: `nomad-audio-chunks` — temporary chunks during progressive upload (private, auto-cleaned)
 - File size limit: must be set to >= 500 MB in Supabase Dashboard → Storage → Settings
-- RLS policy required for direct uploads (anon key):
+- RLS policies required for direct uploads (anon key):
   ```sql
+  -- nomad-audio
   CREATE POLICY "Allow audio uploads"
   ON storage.objects FOR INSERT
   WITH CHECK (bucket_id = 'nomad-audio');
+
+  -- nomad-audio-chunks (INSERT, SELECT, DELETE)
+  CREATE POLICY "Allow chunk uploads anon"
+  ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'nomad-audio-chunks');
+  CREATE POLICY "Allow chunk reads anon"
+  ON storage.objects FOR SELECT USING (bucket_id = 'nomad-audio-chunks');
+  CREATE POLICY "Allow chunk deletes anon"
+  ON storage.objects FOR DELETE USING (bucket_id = 'nomad-audio-chunks');
   ```
-- Upload strategies (cascading fallback):
+- Upload strategies for final files (cascading fallback):
   1. Direct XHR to Supabase Storage (with progress, needs anon key)
   2. Supabase JS client (reliable, no progress)
   3. Backend proxy (slowest, goes through Cloudflare Tunnel)
+
+## Progressive Chunk Save (v0.7.0+)
+
+Long recordings are safe against crashes and memory pressure:
+
+- **Flush interval**: every 30s, audio chunks are flushed from RAM to IndexedDB + uploaded to `nomad-audio-chunks`
+- **IndexedDB stores** (DB v3): `recording-chunks` (keyPath: id), `active-recording` (metadata)
+- **On stop**: remaining RAM chunks flushed → `waitForAllUploads()` retries failed → server-side assembly via `POST /api/upload/assemble` → fallback to direct blob upload if assembly fails
+- **Crash recovery**: on app reload, orphaned `active-recording` entries trigger a recovery banner → reassemble from IndexedDB chunks
+- **Limits**: ~20h recording capacity (500MB bucket / ~25KB/s webm), max 30s data loss on crash
+- **Key hooks**: `useOfflineSync.js` (chunk stores), `useChunkUploader.js` (upload queue with retry)
 
 ## Frontend Structure
 
 ```
 frontend/src/
   components/   # Reusable UI components
-  hooks/        # Custom React hooks (audio, devices, engine, theme, offline)
+  hooks/        # Custom React hooks (audio, devices, engine, theme, offline, chunkUploader)
   lib/          # API clients (api.js), Supabase client (supabase.js)
   pages/        # Route-level components
   styles/       # Theme tokens, mvp.css
