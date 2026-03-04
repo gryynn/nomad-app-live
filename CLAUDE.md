@@ -62,16 +62,26 @@ cd frontend && npm run dev
 # Backend dev
 cd backend && uvicorn app.main:app --reload --port 8400
 
-# Production
-docker compose -f docker/docker-compose.yml up -d
+# Production (from repo root)
+docker compose --env-file backend/.env build --no-cache
+docker compose --env-file backend/.env up -d
 ```
 
 ## Infrastructure
 
 - GREEN-LAB: always-on server hosting the app (Debian 12, Docker, Traefik)
 - WYNONA: on-demand GPU server (RTX 4070 Super, WhisperX)
-- Cloudflare Tunnel: public access at recorder.mgdesign.cloud
+- Cloudflare Tunnel: public access at nomad.mgdesign.cloud
 - Tailscale: GREEN-LAB ↔ WYNONA private network
+- Auto-deploy: `auto-deploy.sh` runs via cron every minute on GREEN-LAB
+
+## Docker
+
+- **ONE** `docker-compose.yml` at the **repo root** — never create alternatives
+- Always use `--env-file backend/.env` for build args (Supabase keys for frontend)
+- Domain prod = `nomad.mgdesign.cloud` (frontend) + `nomad-api.mgdesign.cloud` (API)
+- Domain local = `nomad.green-lab.local` + `nomad-api.green-lab.local`
+- Never use `recorder.mgdesign.cloud` — that domain does not exist
 
 ## Important Rules
 

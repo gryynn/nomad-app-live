@@ -1,6 +1,6 @@
 # API Reference — NOMAD PWA
 
-Base URL: `https://recorder.mgdesign.cloud` (production) / `http://localhost:8400` (dev)
+Base URL: `https://nomad.mgdesign.cloud` (production) / `http://localhost:8400` (dev)
 
 ---
 

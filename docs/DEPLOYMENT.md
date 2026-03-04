@@ -6,45 +6,45 @@
 
 - Docker + Docker Compose
 - Traefik reverse proxy (already running)
-- Cloudflare Tunnel to `recorder.mgdesign.cloud`
+- Cloudflare Tunnel to `nomad.mgdesign.cloud`
 - Tailscale for WYNONA access
 
 ### Deploy
 
 ```bash
 # On GREEN-LAB
-cd ~/docker/nomad-pwa
+cd ~/docker/nomad
 git pull
-docker compose -f docker/docker-compose.yml up -d --build
+docker compose --env-file backend/.env build --no-cache
+docker compose --env-file backend/.env up -d
 ```
+
+Auto-deploy: `auto-deploy.sh` runs via cron every minute, pulls latest and rebuilds if changed.
 
 ### Environment Variables
 
-Copy `.env.example` to `.env` and fill in:
+Backend env in `backend/.env`:
 
 ```bash
-cp .env.example .env
-nano .env
+cp .env.example backend/.env
+nano backend/.env
 ```
 
 Required:
-- `SUPABASE_URL` / `SUPABASE_SERVICE_KEY`
+- `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` / `SUPABASE_ANON_KEY`
 - `GROQ_API_KEY`
 - `DEEPGRAM_API_KEY`
 - `WYNONA_HOST` (Tailscale IP)
 - `WYNONA_WOL_MAC` (for Wake-on-LAN)
 
+The `SUPABASE_URL` and `SUPABASE_ANON_KEY` are passed as build args to the frontend Docker build via `--env-file backend/.env`.
+
 ### Traefik Labels
 
-The `docker-compose.yml` includes Traefik labels for automatic routing:
+The root `docker-compose.yml` includes Traefik labels for automatic routing:
 
-```yaml
-labels:
-  - "traefik.enable=true"
-  - "traefik.http.routers.nomad.rule=Host(`recorder.mgdesign.cloud`)"
-  - "traefik.http.routers.nomad.tls=true"
-  - "traefik.http.services.nomad.loadbalancer.server.port=8400"
-```
+- Frontend: `nomad.green-lab.local` (local HTTPS) + `nomad.mgdesign.cloud` (public HTTP)
+- API: `nomad-api.green-lab.local` (local HTTPS) + `nomad-api.mgdesign.cloud` (public HTTP)
 
 ### Cloudflare Tunnel
 
@@ -52,11 +52,17 @@ Ensure the tunnel config includes:
 
 ```yaml
 ingress:
-  - hostname: recorder.mgdesign.cloud
-    service: http://traefik:443
-    originRequest:
-      noTLSVerify: true
+  - hostname: nomad.mgdesign.cloud
+    service: http://traefik:80
+  - hostname: nomad-api.mgdesign.cloud
+    service: http://traefik:80
 ```
+
+### Docker Rules
+
+- **ONE** `docker-compose.yml` at repo root — never create alternatives
+- Always use `--env-file backend/.env` for build args
+- Domain = `nomad.mgdesign.cloud` — never use `recorder.mgdesign.cloud`
 
 ---
 

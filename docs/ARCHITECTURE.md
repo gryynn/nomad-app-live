@@ -9,7 +9,7 @@ Internet (HTTPS)
     ▼
 GREEN-LAB (always on)
     ├── Traefik reverse proxy
-    ├── recorder.mgdesign.cloud → nomad-api container
+    ├── nomad.mgdesign.cloud → nomad-api container
     │     ├── FastAPI backend (port 8400)
     │     └── Static PWA files
     │
@@ -78,7 +78,7 @@ POST /transcribe/:id
 ```
 Browser
     │
-    │  WebSocket wss://recorder.mgdesign.cloud/ws/live
+    │  WebSocket wss://nomad.mgdesign.cloud/ws/live
     │  → sends audio chunks every 1-2s (MediaRecorder timeslice)
     │
     ▼
