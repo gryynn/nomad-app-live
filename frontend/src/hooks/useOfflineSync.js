@@ -149,9 +149,26 @@ export function useOfflineSync() {
 
   // ─── Progressive chunk save functions ──────────────
 
-  /** Create metadata entry for a new active recording */
+  /** Create metadata entry for a new active recording.
+   *  Cleans up any previous orphaned recordings first. */
   const startActiveRecording = useCallback(async (id, mode, mimeType) => {
     const db = await getDb();
+    // Clean up any previous orphaned recordings
+    const existing = await db.getAll("active-recording");
+    for (const old of existing) {
+      const tx = db.transaction(["recording-chunks", "active-recording"], "readwrite");
+      const chunkStore = tx.objectStore("recording-chunks");
+      const metaStore = tx.objectStore("active-recording");
+      const allChunks = await chunkStore.getAll();
+      for (const chunk of allChunks) {
+        if (chunk.recordingId === old.id) {
+          await chunkStore.delete(chunk.id);
+        }
+      }
+      await metaStore.delete(old.id);
+      await tx.done;
+      console.log(`[OFFLINE] Cleaned orphaned recording: ${old.id}`);
+    }
     await db.put("active-recording", {
       id,
       mode,
@@ -230,10 +247,11 @@ export function useOfflineSync() {
     await tx.done;
   }, []);
 
-  /** Detect orphaned recordings (crash recovery) */
+  /** Detect orphaned recordings (crash recovery), most recent first */
   const getOrphanedRecordings = useCallback(async () => {
     const db = await getDb();
-    return db.getAll("active-recording");
+    const all = await db.getAll("active-recording");
+    return all.sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
   }, []);
 
   // Set up online/offline detection and auto-sync

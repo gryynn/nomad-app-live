@@ -1710,6 +1710,17 @@ export default function App() {
                       ))}
                     </div>
                   )}
+                  {tags.length > 0 && (
+                    <div className="rec-notes-bar">
+                      <div className="tags-shortcuts">
+                        {tags.map((tag) => (
+                          <span key={tag.id} className="tag-shortcut" onClick={() => insertTag(tag.name)}>
+                            {tag.emoji} {tag.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {extractHashtags(recNotesText).length > 0 && (

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabase.js";
 
 const MAX_RETRIES = 3;
@@ -18,7 +18,6 @@ export function useChunkUploader() {
     while (queueRef.current.length > 0) {
       // Pause if offline
       if (!navigator.onLine) {
-        // Wait for online event
         await new Promise((resolve) => {
           const handler = () => {
             window.removeEventListener("online", handler);
@@ -26,12 +25,20 @@ export function useChunkUploader() {
           };
           window.addEventListener("online", handler);
         });
+        // Re-queue failed chunks for retry now that we're back online
+        if (failedRef.current.length > 0) {
+          console.log(`[CHUNK-UPLOAD] Back online, re-queuing ${failedRef.current.length} failed chunk(s)`);
+          queueRef.current.push(...failedRef.current);
+          failedRef.current = [];
+        }
       }
 
       const item = queueRef.current[0];
       let success = false;
 
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        // Check online before each attempt
+        if (!navigator.onLine) break;
         try {
           const path = `${item.sessionId}/chunk_${String(item.seq).padStart(4, "0")}.webm`;
           const { error } = await supabase.storage
@@ -54,6 +61,9 @@ export function useChunkUploader() {
 
       if (success) {
         setProgress((prev) => ({ ...prev, uploaded: prev.uploaded + 1 }));
+      } else if (!navigator.onLine) {
+        // Went offline mid-retry → put back in queue (will wait for online at top of loop)
+        queueRef.current.unshift(item);
       } else {
         failedRef.current.push(item);
         console.error(`[CHUNK-UPLOAD] Failed after ${MAX_RETRIES} retries: seq ${item.seq}`);
@@ -69,6 +79,21 @@ export function useChunkUploader() {
     }
     resolversRef.current = [];
   }, []);
+
+  // Listen for online event to retry failed chunks even when queue is idle
+  useEffect(() => {
+    const handleOnline = () => {
+      if (failedRef.current.length > 0) {
+        console.log(`[CHUNK-UPLOAD] Online event: re-queuing ${failedRef.current.length} failed chunk(s)`);
+        queueRef.current.push(...failedRef.current);
+        failedRef.current = [];
+        setProgress((prev) => ({ ...prev, isUploading: true }));
+        processQueue();
+      }
+    };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, [processQueue]);
 
   /** Queue a chunk for upload (fire-and-forget) */
   const uploadChunk = useCallback((sessionId, seq, blob) => {
