@@ -155,6 +155,9 @@ export default function App() {
 
   // Offline sync
   const offline = useOfflineSync();
+  const [syncPanelOpen, setSyncPanelOpen] = useState(false);
+  const [syncPanelItems, setSyncPanelItems] = useState([]);
+  const [syncingItemId, setSyncingItemId] = useState(null);
 
   // ─── Load data ────────────────────────────────────
   const loadSessions = useCallback(async (filters = {}) => {
@@ -242,6 +245,40 @@ export default function App() {
   useEffect(() => {
     if (success) { const t = setTimeout(() => setSuccess(null), 4000); return () => clearTimeout(t); }
   }, [success]);
+
+  // ─── Sync upload function (used by auto-sync and manual sync) ──
+  const syncUploadFn = useCallback(async (item) => {
+    const blob = item.blob;
+    if (!blob) throw new Error("Pas de blob audio");
+    const ext = blob.type?.includes("mp4") ? "mp4" : "webm";
+    const file = new File([blob], item.filename || `sync_${Date.now()}.${ext}`, { type: blob.type || "audio/webm" });
+    const result = await api.uploadAudio(file);
+    const sessionId = result.session_id;
+    // Apply metadata
+    const updates = { input_mode: item.mode || "rec" };
+    if (item.title) updates.title = item.title;
+    if (item.duration) updates.duration_seconds = item.duration;
+    if (item.liveTranscript) {
+      updates.transcript = item.liveTranscript;
+      updates.status = "transcribed";
+    }
+    await api.updateSession(sessionId, updates);
+    if (item.notes) await api.addNote(sessionId, item.notes);
+    if (item.engine) await api.transcribe(sessionId, item.engine);
+  }, []);
+
+  // Auto-sync on mount: register uploadFn so online event works
+  useEffect(() => {
+    offline.syncPending(syncUploadFn).then((result) => {
+      if (result && result.synced > 0) {
+        setSuccess(`${result.synced} enregistrement(s) synchronisé(s)`);
+        loadSessions();
+      }
+      if (result && result.failed > 0) {
+        setError(`Sync: ${result.failed} échec(s) — ${result.errors.join(", ")}`);
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (error) { const t = setTimeout(() => setError(null), 8000); return () => clearTimeout(t); }
   }, [error]);
@@ -607,38 +644,37 @@ export default function App() {
     console.log("[SAVE] pendingBlob:", pendingBlob.size, "bytes, type:", pendingBlob.type);
     setReviewSaving(true);
     setError(null);
+
+    const ext = pendingBlob.type.includes("mp4") ? "mp4" : "webm";
+    const fileName = `${recMode}_${Date.now()}.${ext}`;
+    const offlineId = `rec_${Date.now()}`;
+
+    // Save-first: always persist to IndexedDB before attempting upload
+    const offlineItem = {
+      id: offlineId,
+      blob: pendingBlob,
+      filename: fileName,
+      mode: recMode,
+      title: recTitle.trim(),
+      notes: recNotesText.trim(),
+      liveTranscript: recMode === "live" ? livePreviewText : null,
+      duration: pendingDuration,
+      engine: doTranscribe ? selectedEngine : null,
+      savedAt: new Date().toISOString(),
+    };
+
+    try {
+      await offline.saveRecordingOffline(offlineItem);
+      console.log("[SAVE] Blob saved to IndexedDB as safety net");
+    } catch (dbErr) {
+      console.error("[SAVE] IndexedDB save failed:", dbErr);
+    }
+
     try {
       // 1. Upload audio
-      const ext = pendingBlob.type.includes("mp4") ? "mp4" : "webm";
-      const file = new File([pendingBlob], `${recMode}_${Date.now()}.${ext}`, { type: pendingBlob.type });
+      const file = new File([pendingBlob], fileName, { type: pendingBlob.type });
       console.log("[SAVE] uploading file:", file.name, file.size, "bytes");
-
-      let result;
-      try {
-        result = await api.uploadAudio(file);
-      } catch (uploadErr) {
-        // Offline fallback: save to IndexedDB
-        console.warn("[SAVE] Upload failed, saving offline:", uploadErr);
-        await offline.saveRecordingOffline({
-          id: `rec_${Date.now()}`,
-          blob: pendingBlob,
-          filename: file.name,
-          mode: recMode,
-          title: recTitle.trim(),
-          notes: recNotesText.trim(),
-          liveTranscript: recMode === "live" ? livePreviewText : null,
-          duration: pendingDuration,
-          engine: doTranscribe ? selectedEngine : null,
-          savedAt: new Date().toISOString(),
-        });
-        setSuccess(`Sauvegardé hors-ligne (${offline.pendingCount + 1} en attente)`);
-        setPendingBlob(null); setShowReview(false); setRecTitle(""); setRecNotesText("");
-        setLivePreviewText(""); setLiveEditText(""); lastSpeechLenRef.current = 0;
-        setLiveSessionId(null); setRecMode(null); setMode(null); setTagSuggestions([]);
-        setReviewSaving(false);
-        return;
-      }
-
+      const result = await api.uploadAudio(file);
       console.log("[SAVE] upload result:", result);
       const sessionId = result.session_id;
 
@@ -676,6 +712,9 @@ export default function App() {
         setSuccess("Session sauvegardée");
       }
 
+      // Upload succeeded → remove from IndexedDB
+      await offline.removePendingItem({ id: offlineId, _store: "recording" });
+
       // Cleanup
       setPendingBlob(null);
       setShowReview(false);
@@ -690,7 +729,26 @@ export default function App() {
       setTagSuggestions([]);
       await loadSessions();
     } catch (e) {
-      setError(`Erreur: ${e.message}`);
+      // Upload failed — blob is already safe in IndexedDB
+      const sizeMB = (pendingBlob.size / 1024 / 1024).toFixed(1);
+      const errDetail = e.message.includes("413") ? " (fichier trop gros — augmenter limite Supabase)"
+        : e.message.includes("CORS") ? " (CORS — vérifier RLS policy Supabase)"
+        : e.message.includes("Network") || e.message.includes("Connexion") ? " (réseau indisponible)"
+        : "";
+      setError(`Upload échoué${errDetail} — audio ${sizeMB} MB sauvegardé localement. Cliquez le badge orange pour réessayer.`);
+      console.error("[SAVE] Upload failed:", e);
+      // Clean up review screen
+      setPendingBlob(null);
+      setShowReview(false);
+      setRecTitle("");
+      setRecNotesText("");
+      setLivePreviewText("");
+      setLiveEditText("");
+      lastSpeechLenRef.current = 0;
+      setLiveSessionId(null);
+      setRecMode(null);
+      setMode(null);
+      setTagSuggestions([]);
     } finally {
       setReviewSaving(false);
     }
@@ -1144,7 +1202,7 @@ export default function App() {
         <h1>N O M A D</h1>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {!offline.isOnline && <span className="offline-badge">hors-ligne</span>}
-          {offline.pendingCount > 0 && <span className="pending-badge" title={`${offline.pendingCount} élément(s) en attente de sync`}>{offline.pendingCount}</span>}
+          {offline.pendingCount > 0 && <span className="pending-badge" title={`${offline.pendingCount} élément(s) en attente de sync`} onClick={async () => { const items = await offline.getAllPending(); setSyncPanelItems(items); setSyncPanelOpen(true); }}>{offline.pendingCount}</span>}
           <div className={`status-dot ${!offline.isOnline ? "offline" : loading ? "offline" : ""}`} title={!offline.isOnline ? "Hors-ligne" : loading ? "Chargement..." : "Connecté"} />
         </div>
       </div>
@@ -1152,6 +1210,106 @@ export default function App() {
       {/* Messages */}
       {error && <div className="error-msg">{error}</div>}
       {success && <div className="success-msg">{success}</div>}
+
+      {/* ─── SYNC PANEL ──────────────────────────── */}
+      {syncPanelOpen && (
+        <div className="sync-panel">
+          <div className="sync-panel-header">
+            <span style={{ fontWeight: 700, fontSize: 14 }}>Éléments en attente</span>
+            <button className="btn btn-sm btn-ghost" onClick={() => setSyncPanelOpen(false)} style={{ padding: "4px 10px" }}>✕</button>
+          </div>
+          {syncPanelItems.length === 0 ? (
+            <div className="empty" style={{ padding: 16 }}>Aucun élément en attente</div>
+          ) : (
+            <div className="sync-panel-list">
+              {syncPanelItems.map((item) => (
+                <div key={item.id} className="sync-item">
+                  <div className="sync-item-info">
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{item.title || item.filename || item.id}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-soft)" }}>
+                      {item.blob ? `${(item.blob.size / 1024 / 1024).toFixed(1)} MB` : "—"}
+                      {item.savedAt && ` · ${new Date(item.savedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
+                      {item.mode && ` · ${item.mode}`}
+                    </div>
+                  </div>
+                  <div className="sync-item-actions">
+                    <button
+                      className="btn btn-sm btn-primary"
+                      disabled={syncingItemId === item.id}
+                      style={{ padding: "4px 10px", width: "auto" }}
+                      onClick={async () => {
+                        setSyncingItemId(item.id);
+                        try {
+                          await syncUploadFn(item);
+                          await offline.removePendingItem(item);
+                          setSyncPanelItems((prev) => prev.filter((i) => i.id !== item.id));
+                          setSuccess("Synchronisé !");
+                          loadSessions();
+                        } catch (err) {
+                          setError(`Sync échoué: ${err.message}`);
+                        } finally {
+                          setSyncingItemId(null);
+                        }
+                      }}
+                    >
+                      {syncingItemId === item.id ? "..." : "Sync"}
+                    </button>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      style={{ padding: "4px 10px" }}
+                      onClick={() => {
+                        if (!item.blob) return;
+                        const url = URL.createObjectURL(item.blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = item.filename || `recording_${item.id}.webm`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      className="btn btn-sm btn-danger"
+                      style={{ padding: "4px 10px" }}
+                      onClick={async () => {
+                        await offline.removePendingItem(item);
+                        setSyncPanelItems((prev) => prev.filter((i) => i.id !== item.id));
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {syncPanelItems.length > 1 && (
+            <button
+              className="btn btn-primary btn-sm"
+              style={{ marginTop: 8, width: "100%" }}
+              disabled={syncingItemId !== null}
+              onClick={async () => {
+                setSyncingItemId("all");
+                const result = await offline.syncPending(syncUploadFn);
+                if (result.synced > 0) {
+                  setSuccess(`${result.synced} élément(s) synchronisé(s)`);
+                  loadSessions();
+                }
+                if (result.failed > 0) {
+                  setError(`${result.failed} échec(s): ${result.errors.join(", ")}`);
+                }
+                const items = await offline.getAllPending();
+                setSyncPanelItems(items);
+                setSyncingItemId(null);
+                if (items.length === 0) setSyncPanelOpen(false);
+              }}
+            >
+              {syncingItemId === "all" ? "Synchronisation..." : "Tout synchroniser"}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ─── CAPTURE SECTION ─────────────────────── */}
       <div className="section">

@@ -78,8 +78,11 @@ html, body {
   background: var(--orange);
   color: #000;
   font-weight: 700;
-  cursor: help;
+  cursor: pointer;
+  transition: transform 0.15s;
 }
+.pending-badge:hover { transform: scale(1.15); }
+.pending-badge:active { transform: scale(0.95); }
 
 /* Section */
 .section {
@@ -1165,4 +1168,45 @@ label {
   opacity: 0.4;
   padding: 16px 0 4px;
   letter-spacing: 0.05em;
+}
+
+/* Sync panel */
+.sync-panel {
+  background: var(--surface);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+.sync-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.sync-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sync-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  background: var(--surface2);
+  border-radius: 6px;
+}
+.sync-item-info {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.sync-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
 }

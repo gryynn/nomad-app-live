@@ -24,6 +24,7 @@ export function useOfflineSync() {
   const [pendingCount, setPendingCount] = useState(0);
   const [syncProgress, setSyncProgress] = useState({ total: 0, synced: 0 });
   const uploadFnRef = useRef(null);
+  const syncingRef = useRef(false);
 
   // Update pending count
   const updatePendingCount = useCallback(async () => {
@@ -67,36 +68,74 @@ export function useOfflineSync() {
     await updatePendingCount();
   }, [updatePendingCount]);
 
-  const syncPending = useCallback(async (uploadFn) => {
-    // Store uploadFn for auto-sync on reconnection
-    uploadFnRef.current = uploadFn;
-
-    setSyncProgress({ total: 0, synced: 0 });
-
+  // Get all pending items (for sync panel UI)
+  const getAllPending = useCallback(async () => {
     const sessions = await getPendingSessions();
     const recordings = await getPendingRecordings();
-    const allPending = [...sessions, ...recordings];
+    return [
+      ...sessions.map((s) => ({ ...s, _store: "session" })),
+      ...recordings.map((r) => ({ ...r, _store: "recording" })),
+    ];
+  }, [getPendingSessions, getPendingRecordings]);
 
-    setSyncProgress({ total: allPending.length, synced: 0 });
+  // Remove any pending item by id
+  const removePendingItem = useCallback(async (item) => {
+    if (item._store === "session") {
+      await removePendingSession(item.id);
+    } else {
+      await removePendingRecording(item.id);
+    }
+  }, [removePendingSession, removePendingRecording]);
 
-    let synced = 0;
-    for (const item of allPending) {
-      try {
-        await uploadFn(item);
+  const syncPending = useCallback(async (uploadFn) => {
+    // Store uploadFn for auto-sync on reconnection
+    if (uploadFn) uploadFnRef.current = uploadFn;
+    const fn = uploadFn || uploadFnRef.current;
+    if (!fn) return { synced: 0, failed: 0, errors: [] };
 
-        // Determine which store to remove from
-        if (sessions.find((s) => s.id === item.id)) {
-          await removePendingSession(item.id);
-        } else {
-          await removePendingRecording(item.id);
+    // Prevent concurrent syncs
+    if (syncingRef.current) return { synced: 0, failed: 0, errors: [] };
+    syncingRef.current = true;
+
+    try {
+      setSyncProgress({ total: 0, synced: 0 });
+
+      const sessions = await getPendingSessions();
+      const recordings = await getPendingRecordings();
+      const allPending = [...sessions, ...recordings];
+
+      if (allPending.length === 0) return { synced: 0, failed: 0, errors: [] };
+
+      setSyncProgress({ total: allPending.length, synced: 0 });
+
+      let synced = 0;
+      let failed = 0;
+      const errors = [];
+
+      for (const item of allPending) {
+        try {
+          await fn(item);
+
+          // Determine which store to remove from
+          if (sessions.find((s) => s.id === item.id)) {
+            await removePendingSession(item.id);
+          } else {
+            await removePendingRecording(item.id);
+          }
+
+          synced++;
+          setSyncProgress({ total: allPending.length, synced });
+        } catch (err) {
+          // Continue to next item instead of breaking
+          failed++;
+          errors.push(`${item.filename || item.id}: ${err.message}`);
+          console.warn(`[SYNC] Failed to sync ${item.id}:`, err.message);
         }
-
-        synced++;
-        setSyncProgress({ total: allPending.length, synced });
-      } catch {
-        // Will retry on next sync
-        break;
       }
+
+      return { synced, failed, errors };
+    } finally {
+      syncingRef.current = false;
     }
   }, [getPendingSessions, getPendingRecordings, removePendingSession, removePendingRecording]);
 
@@ -133,5 +172,7 @@ export function useOfflineSync() {
     saveSessionOffline,
     saveRecordingOffline,
     syncPending,
+    getAllPending,
+    removePendingItem,
   };
 }
