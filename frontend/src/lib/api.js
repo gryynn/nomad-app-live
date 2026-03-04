@@ -109,6 +109,8 @@ async function uploadDirectXHR(file, storagePath, contentType, onProgress) {
       if (xhr.status >= 200 && xhr.status < 300) {
         console.log(`[UPLOAD] Direct XHR to Supabase OK`);
         resolve();
+      } else if (xhr.status === 413) {
+        reject(new Error(`Fichier trop volumineux pour Supabase Storage (limite ~50 MB). Augmentez la limite dans Supabase Dashboard → Storage → Settings.`));
       } else {
         reject(new Error(`Storage ${xhr.status}: ${xhr.responseText}`));
       }
@@ -126,7 +128,12 @@ async function uploadDirectClient(file, storagePath, contentType) {
   const { error } = await supabase.storage
     .from("nomad-audio")
     .upload(storagePath, file, { contentType, upsert: true });
-  if (error) throw error;
+  if (error) {
+    if (error.statusCode === "413" || error.message?.includes("Payload too large")) {
+      throw new Error(`Fichier trop volumineux pour Supabase Storage (limite ~50 MB). Augmentez la limite dans Supabase Dashboard → Storage → Settings.`);
+    }
+    throw error;
+  }
   console.log(`[UPLOAD] Supabase client upload OK`);
 }
 

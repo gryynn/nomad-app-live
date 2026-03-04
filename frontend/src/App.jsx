@@ -2105,7 +2105,7 @@ export default function App() {
       </div>
 
       {/* ─── VERSION FOOTER ──────────────────────── */}
-      <div className="version-footer">v0.5.3</div>
+      <div className="version-footer">v{__APP_VERSION__}</div>
     </div>
   );
 }

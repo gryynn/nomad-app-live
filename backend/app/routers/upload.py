@@ -154,10 +154,15 @@ async def upload_audio_legacy(file: UploadFile = File(...)):
             upload_resp = await client.post(
                 storage_url, headers=storage_headers, content=file_content
             )
+            if upload_resp.status_code == 413:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Fichier trop volumineux ({file_size / 1024 / 1024:.0f} MB). Augmentez la limite dans Supabase Dashboard → Storage → Settings."
+                )
             if upload_resp.status_code not in (200, 201):
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Storage upload failed: {upload_resp.text}"
+                    detail=f"Storage upload failed ({upload_resp.status_code}): {upload_resp.text}"
                 )
 
             audio_url = f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{storage_path}"

@@ -350,7 +350,7 @@ export default function Settings() {
         </div>
         <div style={{ marginBottom: "8px" }}>
           <span style={{ color: theme.textSoft }}>Version: </span>
-          <span style={{ color: theme.accent, fontFamily: FONTS.mono }}>v0.1.0</span>
+          <span style={{ color: theme.accent, fontFamily: FONTS.mono }}>v{__APP_VERSION__}</span>
         </div>
         <div>
           <a
