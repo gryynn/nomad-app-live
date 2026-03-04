@@ -1,12 +1,12 @@
-# Deployment — NOMAD PWA
+# Deployment — NOMAD PWA (v0.6.0)
 
 ## Production Setup (GREEN-LAB)
 
 ### Prerequisites
 
-- Docker + Docker Compose
+- Docker + Docker Compose v2
 - Traefik reverse proxy (already running)
-- Cloudflare Tunnel to `nomad.mgdesign.cloud`
+- Cloudflare Tunnel to `nomad.mgdesign.cloud` + `nomad-api.mgdesign.cloud`
 - Tailscale for WYNONA access
 
 ### Deploy
@@ -14,41 +14,70 @@
 ```bash
 # On GREEN-LAB
 cd ~/docker/nomad
-git pull
+git pull origin functional-mvp
 docker compose --env-file backend/.env build --no-cache
 docker compose --env-file backend/.env up -d
 ```
 
 Auto-deploy: `auto-deploy.sh` runs via cron every minute, pulls latest and rebuilds if changed.
 
+```cron
+*/1 * * * * cd ~/docker/nomad && ./auto-deploy.sh >> /var/log/nomad-deploy.log 2>&1
+```
+
 ### Environment Variables
 
-Backend env in `backend/.env`:
+All env vars in `backend/.env`:
 
 ```bash
+# Copy template
 cp .env.example backend/.env
 nano backend/.env
 ```
 
-Required:
-- `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` / `SUPABASE_ANON_KEY`
-- `GROQ_API_KEY`
-- `DEEPGRAM_API_KEY`
-- `WYNONA_HOST` (Tailscale IP)
-- `WYNONA_WOL_MAC` (for Wake-on-LAN)
+| Variable | Used by | Description |
+|----------|---------|-------------|
+| `SUPABASE_URL` | Backend + Frontend (build arg) | Supabase project URL |
+| `SUPABASE_SERVICE_KEY` | Backend only | Full-access service key |
+| `SUPABASE_ANON_KEY` | Backend + Frontend (build arg) | Public anon key |
+| `GROQ_API_KEY` | Backend | Groq Whisper API |
+| `DEEPGRAM_API_KEY` | Backend | Deepgram Nova-3 API |
+| `WYNONA_HOST` | Backend | Tailscale IP of WYNONA |
+| `WYNONA_WOL_MAC` | Backend | Wake-on-LAN MAC address |
 
-The `SUPABASE_URL` and `SUPABASE_ANON_KEY` are passed as build args to the frontend Docker build via `--env-file backend/.env`.
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` are passed to the frontend Docker build via `--env-file backend/.env` → docker-compose `build.args`.
 
-### Traefik Labels
+### Supabase Configuration
 
-The root `docker-compose.yml` includes Traefik labels for automatic routing:
+**Storage bucket `nomad-audio`:**
 
-- Frontend: `nomad.green-lab.local` (local HTTPS) + `nomad.mgdesign.cloud` (public HTTP)
-- API: `nomad-api.green-lab.local` (local HTTPS) + `nomad-api.mgdesign.cloud` (public HTTP)
+1. File size limit: Dashboard → Storage → Settings → set to **500 MB** (or more)
+2. RLS policy for direct uploads:
+   ```sql
+   CREATE POLICY "Allow audio uploads"
+   ON storage.objects FOR INSERT
+   WITH CHECK (bucket_id = 'nomad-audio');
+   ```
+3. Bucket must have public read access enabled
+
+**Database schema `app_nomad`:**
+
+- Tables: `sessions`, `tags`, `session_tags`, `notes`
+- All accessed via Supabase REST API with `Accept-Profile: app_nomad` header
+- Never drop or truncate `sessions` (247+ legacy rows)
+
+### Traefik Routing
+
+Root `docker-compose.yml` configures Traefik labels:
+
+| Router | Domain | Target |
+|--------|--------|--------|
+| `nomad-frontend` | `nomad.green-lab.local` (HTTPS) | Frontend nginx:80 |
+| `nomad-frontend-public` | `nomad.mgdesign.cloud` (HTTP) | Frontend nginx:80 |
+| `nomad-api` | `nomad-api.green-lab.local` (HTTPS) | FastAPI:8400 |
+| `nomad-api-public` | `nomad-api.mgdesign.cloud` (HTTP) | FastAPI:8400 |
 
 ### Cloudflare Tunnel
-
-Ensure the tunnel config includes:
 
 ```yaml
 ingress:
@@ -76,21 +105,17 @@ ingress:
 
 ### Container
 
-The WhisperX container runs on WYNONA independently. It exposes:
-
-- `GET /health` — readiness check
-- `POST /transcribe` — batch transcription
-- `WS /ws/transcribe` — streaming transcription
-
 ```bash
 # On WYNONA
 cd ~/docker/whisperx-stream
 docker compose up -d
 ```
 
-The container uses `restart: unless-stopped` so it auto-starts with Docker Desktop.
+Endpoints:
+- `GET /health` — readiness check
+- `POST /transcribe` — batch transcription
 
-Model loading takes ~15s after container start.
+Container uses `restart: unless-stopped`. Model loading takes ~15s after start.
 
 ---
 
@@ -103,6 +128,8 @@ cd frontend
 npm install
 npm run dev     # http://localhost:5173
 ```
+
+Vite dev server proxies `/api/*` to `http://localhost:8400` automatically.
 
 ### Backend
 
@@ -131,3 +158,4 @@ cd backend && uvicorn app.main:app --reload --port 8400
 - Traefik dashboard: `https://traefik.mgdesign.cloud`
 - Supabase dashboard: `https://supabase.com/dashboard/project/gabiryokeepqpatsfogs`
 - WYNONA health: `http://100.x.x.x:8765/health` (Tailscale)
+- Deploy logs: `/var/log/nomad-deploy.log` on GREEN-LAB

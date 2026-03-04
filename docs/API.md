@@ -1,270 +1,229 @@
-# API Reference — NOMAD PWA
+# API Reference — NOMAD PWA (v0.6.0)
 
-Base URL: `https://nomad.mgdesign.cloud` (production) / `http://localhost:8400` (dev)
+Base URL: `https://nomad.mgdesign.cloud/api` (production) / `http://localhost:8400/api` (dev)
+
+All endpoints are prefixed with `/api`. Requests and responses are JSON unless noted.
+
+---
+
+## Health
+
+### `GET /api/health`
+
+```json
+{ "status": "ok", "service": "nomad-api" }
+```
 
 ---
 
 ## Sessions
 
-### `POST /sessions`
+### `POST /api/sessions`
 
-Create a new session from a recording or paste.
+Create a new session.
 
-**Request** (multipart/form-data):
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| audio | File | No | Audio file (webm, m4a, wav, mp3) |
-| duration | int | Yes | Duration in seconds |
-| input_mode | string | Yes | `record` \| `live` \| `paste` |
-| title | string | No | Session title |
-| content | string | No | Text content (paste mode) |
-| tags | string[] | No | Tag IDs to associate |
-| transcribe | bool | No | Launch transcription (default: auto from tags) |
-| engine | string | No | Engine override (default: auto) |
-
-**Response** `201`:
+**Request** (JSON):
 ```json
 {
-  "id": "uuid",
-  "status": "pending",
+  "input_mode": "rec",
+  "title": "Réunion Q3",
+  "duration_seconds": 2712,
   "audio_url": "https://...",
-  "created_at": "2026-02-28T14:30:00Z"
+  "original_filename": "reunion.m4a",
+  "file_size_bytes": 35000000,
+  "language": "fr",
+  "engine_used": "groq-turbo",
+  "transcript": null
 }
 ```
 
+All fields except `input_mode` are optional. Allowed `input_mode`: `rec`, `live`, `import`, `paste`.
+
 ---
 
-### `GET /sessions`
+### `GET /api/sessions`
 
-List sessions with filtering and search.
+List sessions with filters.
 
 **Query params**:
 
 | Param | Type | Description |
 |-------|------|-------------|
-| q | string | Full-text search in title + transcription |
-| tags | string[] | Filter by tag IDs (AND logic) |
-| status | string | `pending` \| `processing` \| `completed` \| `error` |
-| source | string | `record` \| `import` \| `live` \| `paste` \| `nomad-pi` |
-| from | datetime | Start date filter |
-| to | datetime | End date filter |
-| limit | int | Page size (default: 20) |
+| status | string | `pending` \| `uploaded` \| `processing` \| `transcribed` \| `error` |
+| tag | string | Tag ID(s), comma-separated for multi-select |
+| search | string | Filter by title (ilike) |
+| input_mode | string | `rec` \| `live` \| `import` \| `paste` |
+| created_after | ISO datetime | Start date filter |
+| created_before | ISO datetime | End date filter |
+| limit | int | Page size (default: 50, max: 200) |
 | offset | int | Pagination offset |
 
-**Response** `200`:
-```json
-{
-  "sessions": [
-    {
-      "id": "uuid",
-      "title": "Réunion planning Q3",
-      "duration_seconds": 2712,
-      "status": "completed",
-      "source": "record",
-      "input_mode": "live",
-      "tags": [
-        { "id": "uuid", "name": "Call", "emoji": "📞", "color": "#EF4444" }
-      ],
-      "notes_count": 2,
-      "transcription_preview": "On a décidé de repousser le...",
-      "created_at": "2026-02-28T14:30:00Z"
-    }
-  ],
-  "total": 247,
-  "limit": 20,
-  "offset": 0
-}
-```
+**Response** `200`: Array of session objects with embedded `tags[]`.
 
 ---
 
-### `GET /sessions/:id`
+### `GET /api/sessions/:id`
 
-Full session detail with tags, notes, and marks.
-
-**Response** `200`:
-```json
-{
-  "id": "uuid",
-  "title": "Réunion planning Q3",
-  "duration_seconds": 2712,
-  "audio_url": "https://...",
-  "transcription": "Full transcription text...",
-  "status": "completed",
-  "source": "record",
-  "input_mode": "live",
-  "engine_used": "groq-turbo",
-  "marks": [
-    { "time": 754, "label": null },
-    { "time": 1425, "label": "Action items" }
-  ],
-  "tags": [
-    { "id": "uuid", "name": "Call", "emoji": "📞", "color": "#EF4444" },
-    { "id": "uuid", "name": "Travail", "emoji": "💼", "color": "#3B82F6" }
-  ],
-  "notes": [
-    {
-      "id": "uuid",
-      "content": "Penser à relancer Marc",
-      "type": "text",
-      "created_at": "2026-02-28T16:00:00Z"
-    }
-  ],
-  "created_at": "2026-02-28T14:30:00Z"
-}
-```
+Full session detail with embedded `tags[]` and `notes[]`.
 
 ---
 
-### `PUT /sessions/:id`
+### `PUT /api/sessions/:id`
 
-Update session metadata.
+Update session fields (title, status, transcript, marks, etc.).
 
-**Request** (JSON):
-```json
-{
-  "title": "Updated title",
-  "status": "completed"
-}
-```
+**Request** (JSON): Any subset of `SessionUpdate` fields.
 
 ---
 
-### `POST /sessions/:id/tags`
+### `DELETE /api/sessions/:id`
+
+Hard delete session + associated tags and notes. Returns `204`.
+
+---
+
+### `POST /api/sessions/:id/tags`
 
 Set tags for a session (replaces existing).
 
-**Request** (JSON):
 ```json
-{
-  "tag_ids": ["uuid1", "uuid2"]
-}
+{ "tag_ids": ["uuid1", "uuid2"] }
 ```
 
 ---
 
-### `POST /sessions/:id/notes`
+### `POST /api/sessions/:id/notes`
 
-Add a note to a session.
+Add a note. Returns created note.
 
-**Request** (multipart/form-data):
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| content | string | Yes | Note text |
-| type | string | No | `text` \| `photo` \| `drawing` \| `link` (default: text) |
-| media | File | No | Media file for photo/drawing types |
-
----
-
-### `POST /sessions/:id/marks`
-
-Add a timestamp mark.
-
-**Request** (JSON):
 ```json
-{
-  "time": 754,
-  "label": "Action items"
-}
+{ "content": "Penser à relancer Marc" }
 ```
 
 ---
 
-## Upload / Import
+### `PUT /api/sessions/:id/notes`
 
-### `POST /upload`
+Replace all notes with a single note.
 
-Import one or more audio files.
+```json
+{ "content": "Updated notes content" }
+```
 
-**Request** (multipart/form-data):
+---
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| files | File[] | Yes | Audio files to import |
-| tags | string[] | No | Tag IDs to apply to all |
-| transcribe | bool | No | Queue transcription for all (default: false) |
+### `POST /api/sessions/:id/marks`
 
-**Response** `201`:
+Add a timestamp mark (appends to JSONB array).
+
+```json
+{ "time": 754, "label": "Action items" }
+```
+
+---
+
+## Upload
+
+Three strategies (frontend cascades through them):
+
+### Strategy 1 & 2: Direct to Supabase Storage
+
+Frontend uploads directly to Supabase Storage (XHR or JS client), then calls:
+
+### `POST /api/upload/complete`
+
+Create session record after direct upload.
+
 ```json
 {
-  "imported": [
-    { "id": "uuid", "filename": "reunion.m4a", "duration": 2712 },
-    { "id": "uuid", "filename": "memo.wav", "duration": 150 }
-  ]
+  "session_id": "uuid",
+  "storage_path": "martun/uuid.m4a",
+  "filename": "reunion.m4a",
+  "size": 35000000
 }
+```
+
+**Response** `200`:
+```json
+{
+  "session_id": "uuid",
+  "audio_url": "https://gabiryokeepqpatsfogs.supabase.co/storage/v1/object/public/nomad-audio/martun/uuid.m4a"
+}
+```
+
+### `POST /api/upload/init`
+
+Get a signed upload URL (for XHR direct upload strategy).
+
+```json
+{ "filename": "reunion.m4a", "size": 35000000 }
+```
+
+### Strategy 3: `POST /api/upload`
+
+Legacy backend proxy. Upload via `multipart/form-data` with field `file`.
+Slowest — file goes through Cloudflare Tunnel + backend + Supabase Storage.
+
+**Response** `200`:
+```json
+{ "session_id": "uuid", "audio_url": "https://..." }
 ```
 
 ---
 
 ## Tags
 
-### `GET /tags`
+### `GET /api/tags`
 
-List all tags as a tree.
+List all tags (flat list with `parent_id` for hierarchy).
 
-**Response** `200`:
-```json
-{
-  "tags": [
-    {
-      "id": "uuid",
-      "name": "Travail",
-      "emoji": "💼",
-      "color": "#3B82F6",
-      "transcribe": true,
-      "parent_id": null,
-      "children": [
-        { "id": "uuid", "name": "Télétravail", "emoji": "🏠", "parent_id": "..." },
-        { "id": "uuid", "name": "Réunion", "emoji": "👥", "parent_id": "..." }
-      ],
-      "sessions_count": 42
-    }
-  ]
-}
-```
-
-### `POST /tags`
+### `POST /api/tags`
 
 Create a new tag.
 
-**Request** (JSON):
 ```json
 {
   "name": "Sprint Review",
   "emoji": "🔄",
-  "color": "#6366F1",
-  "transcribe": true,
-  "parent_id": "uuid-of-travail-tag"
+  "hue": "#6366F1",
+  "parent_id": null
 }
 ```
-
-### `PUT /tags/:id`
-
-Update a tag.
 
 ---
 
 ## Transcription
 
-### `POST /transcribe/:id`
+### `POST /api/transcribe/:session_id`
 
-Launch async transcription for a session.
+Launch async background transcription.
 
-**Request** (JSON):
+```json
+{ "engine": "auto" }
+```
+
+Valid engines: `auto`, `groq-turbo`, `groq-large`, `deepgram`, `wynona`.
+
+**Auto mode**: Groq for files < 25 MB, Deepgram for larger files.
+
+**Response** `200`:
 ```json
 {
+  "job_id": "uuid",
+  "status": "queued",
+  "session_id": "uuid",
   "engine": "auto"
 }
 ```
 
-**Response** `202`:
+### `GET /api/transcribe/queue`
+
+Current transcription queue.
+
 ```json
 {
-  "queued": true,
-  "engine": "groq-turbo",
-  "estimated_seconds": 8
+  "jobs": [...],
+  "total": 3
 }
 ```
 
@@ -272,89 +231,6 @@ Launch async transcription for a session.
 
 ## Engines
 
-### `GET /engines/status`
+### `GET /api/engines/status`
 
 Check availability of all transcription engines.
-
-**Response** `200`:
-```json
-{
-  "engines": [
-    {
-      "id": "groq-turbo",
-      "name": "Groq Whisper Turbo",
-      "status": "online",
-      "latency_ms": 120
-    },
-    {
-      "id": "deepgram-nova3",
-      "name": "Deepgram Nova-3",
-      "status": "online",
-      "latency_ms": 85
-    },
-    {
-      "id": "wynona-whisperx",
-      "name": "WYNONA WhisperX",
-      "status": "offline",
-      "gpu_info": null
-    }
-  ]
-}
-```
-
-### `POST /engines/wynona/wake`
-
-Send Wake-on-LAN to WYNONA.
-
-**Response** `202`:
-```json
-{
-  "message": "Wake-on-LAN sent",
-  "estimated_boot_seconds": 300
-}
-```
-
----
-
-## Queue
-
-### `GET /queue`
-
-Current transcription queue.
-
-**Response** `200`:
-```json
-{
-  "active": [
-    { "session_id": "uuid", "progress": 42, "engine": "wynona-whisperx" }
-  ],
-  "pending": [
-    { "session_id": "uuid", "duration": 750, "position": 1 }
-  ],
-  "stats": {
-    "total_processed_today": 18,
-    "total_duration_today": 7200,
-    "cost_today_usd": 0.48
-  }
-}
-```
-
-### `POST /queue/pause`
-
-Pause/resume the transcription queue.
-
-### `POST /queue/cancel`
-
-Cancel all pending items in the queue.
-
----
-
-## WebSocket
-
-### `WS /ws/live`
-
-Live transcription streaming. See [ARCHITECTURE.md](ARCHITECTURE.md#websocket-protocols) for protocol details.
-
-### `WS /ws/queue`
-
-Real-time queue progress updates. See [ARCHITECTURE.md](ARCHITECTURE.md#websocket-protocols) for protocol details.

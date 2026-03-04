@@ -8,8 +8,8 @@ NOMAD is a PWA for universal audio capture and transcription. It replaces a 6-st
 
 - **Frontend**: React 19 + Vite + Tailwind CSS v4, in `frontend/`
 - **Backend**: FastAPI (Python 3.12), in `backend/`
-- **Database**: Supabase PostgreSQL, schema `n8n_transcription`
-- **Storage**: Supabase Storage for audio files
+- **Database**: Supabase PostgreSQL, schema `app_nomad`
+- **Storage**: Supabase Storage, bucket `nomad-audio`
 - **Transcription**: Groq Whisper, Deepgram Nova-3, WhisperX (local GPU on WYNONA)
 
 ## Key Conventions
@@ -21,15 +21,32 @@ NOMAD is a PWA for universal audio capture and transcription. It replaces a 6-st
 - Branding: "N O M A D" with letter-spacing, not "NOMAD"
 - All API calls go through `frontend/src/lib/api.js`
 - Supabase client in `frontend/src/lib/supabase.js`
-- Multi-user ready: every table has or will have a `user_id` column
+- Version centralized in `frontend/package.json`, injected via Vite `define` (`__APP_VERSION__`)
+- Multi-user ready: every table has a `user_id` column
 
 ## Database
 
-- Schema: `n8n_transcription`
-- Existing table: `nomad_sessions` (247 rows, do NOT drop or alter destructively)
-- New tables are added via Supabase migrations (use `apply_migration` MCP tool)
+- Schema: `app_nomad` (Supabase REST headers: `Accept-Profile: app_nomad`)
+- Tables: `sessions`, `tags`, `session_tags`, `notes`
+- Existing data: `sessions` has 247+ legacy rows — do NOT drop or alter destructively
+- New tables are added via Supabase migrations
 - Tags are hierarchical (parent_id self-reference)
 - Tags have optional `mirai_item_id` for future Mirai integration
+
+## Supabase Storage
+
+- Bucket: `nomad-audio`
+- File size limit: must be set to >= 500 MB in Supabase Dashboard → Storage → Settings
+- RLS policy required for direct uploads (anon key):
+  ```sql
+  CREATE POLICY "Allow audio uploads"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'nomad-audio');
+  ```
+- Upload strategies (cascading fallback):
+  1. Direct XHR to Supabase Storage (with progress, needs anon key)
+  2. Supabase JS client (reliable, no progress)
+  3. Backend proxy (slowest, goes through Cloudflare Tunnel)
 
 ## Frontend Structure
 
@@ -37,21 +54,31 @@ NOMAD is a PWA for universal audio capture and transcription. It replaces a 6-st
 frontend/src/
   components/   # Reusable UI components
   hooks/        # Custom React hooks (audio, devices, engine, theme, offline)
-  lib/          # API clients, utilities
+  lib/          # API clients (api.js), Supabase client (supabase.js)
   pages/        # Route-level components
-  styles/       # Theme tokens
+  styles/       # Theme tokens, mvp.css
 ```
 
 ## Backend Structure
 
 ```
 backend/app/
-  main.py       # FastAPI entry point
-  routers/      # Route handlers by domain
-  services/     # Business logic (transcription engines, queue)
+  main.py       # FastAPI entry point, CORS config
+  routers/      # sessions, tags, engines, upload, transcribe
+  services/     # groq_service, deepgram_service, wynona_service, queue_manager
   models/       # Pydantic schemas
   config.py     # Environment config
 ```
+
+## Transcription Engines
+
+| Engine | Trigger | File size | Cost |
+|--------|---------|-----------|------|
+| Groq Whisper Turbo | Auto (< 25 MB) | Max 25 MB | ~$0.01/h |
+| Deepgram Nova-3 | Auto (> 25 MB) | No limit | ~$0.25/h |
+| WhisperX (WYNONA) | Manual or WYNONA online | No limit | Free (local GPU) |
+
+Auto-engine selection: checks file size via HEAD request, routes to Groq or Deepgram.
 
 ## Commands
 
@@ -85,7 +112,7 @@ docker compose --env-file backend/.env up -d
 
 ## Important Rules
 
-- Never drop or truncate `nomad_sessions` — it has 247 legacy recordings
+- Never drop or truncate `sessions` — it has 247+ legacy recordings
 - New columns on existing tables use `ADD COLUMN IF NOT EXISTS`
 - Audio files go to Supabase Storage, not local filesystem
 - Frontend must work offline (Service Worker + IndexedDB)
