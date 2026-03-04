@@ -117,3 +117,22 @@ docker compose --env-file backend/.env up -d
 - Audio files go to Supabase Storage, not local filesystem
 - Frontend must work offline (Service Worker + IndexedDB)
 - Always test with both OLED and Light themes
+
+## Git & Deploy Rules
+
+### Scripts exécutables
+When creating or modifying a `.sh` script in the repo, you MUST make it executable in the commit:
+```bash
+git update-index --chmod=+x path/to/script.sh
+```
+Without this, cron on GREEN-LAB gets "Permission denied" and auto-deploy breaks silently.
+
+### Version bump before every push
+Before every push to `functional-mvp`, you MUST bump the version in `frontend/package.json`. The version is read by `vite.config.js` via `__APP_VERSION__` and displayed in the app footer.
+
+Versioning rules:
+- Bug fix / correction → **patch** (e.g. 0.6.1 → 0.6.2)
+- New feature → **minor** (e.g. 0.6.2 → 0.7.0)
+- Major rewrite → **major** (e.g. 0.7.0 → 1.0.0)
+
+This is how Martun verifies on nomad.mgdesign.cloud that the correct code is deployed. If the version hasn't changed, it's impossible to distinguish a cache issue from a deploy failure.
