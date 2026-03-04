@@ -1320,13 +1320,14 @@ export default function App() {
         return;
       }
       recordingIdRef.current = recoveryData.id;
-      flushSeqRef.current = recoveryData.chunkCount || 0;
+      // Force flushSeq to 0 → skip server-side assembly (chunks not in Supabase Storage)
+      flushSeqRef.current = 0;
       setPendingBlob(blob);
       setPendingDuration(0); // unknown
       setRecMode(recoveryData.mode || "rec");
       setShowReview(true);
       setRecoveryData(null);
-      setSuccess(`${recoveryData.chunkCount || 0} chunk(s) récupéré(s)`);
+      setSuccess(`${recoveryData.chunkCount || 0} chunk(s) récupéré(s) — ajoutez titre/notes puis sauvegardez`);
     } catch (e) {
       setError(`Erreur récupération: ${e.message}`);
     }

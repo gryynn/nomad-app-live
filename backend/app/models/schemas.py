@@ -21,6 +21,8 @@ class SessionCreate(BaseModel):
 class SessionUpdate(BaseModel):
     title: Optional[str] = None
     status: Optional[str] = None
+    input_mode: Optional[str] = None
+    duration_seconds: Optional[int] = None
     transcript: Optional[str] = None
     transcript_segments: Optional[Any] = None
     transcript_words: Optional[int] = None

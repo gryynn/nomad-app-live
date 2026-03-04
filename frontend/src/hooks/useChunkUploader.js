@@ -106,15 +106,23 @@ export function useChunkUploader() {
     processQueue();
   }, [processQueue]);
 
-  /** Wait for all queued uploads to complete */
+  /** Wait for all queued uploads to complete. Re-queues failed items for one more round. */
   const waitForAllUploads = useCallback(() => {
+    // Re-queue failed chunks for one more attempt (user is stopping, likely back online)
+    if (failedRef.current.length > 0) {
+      console.log(`[CHUNK-UPLOAD] waitForAllUploads: re-queuing ${failedRef.current.length} failed chunk(s)`);
+      queueRef.current.push(...failedRef.current);
+      failedRef.current = [];
+      setProgress((prev) => ({ ...prev, isUploading: true }));
+      processQueue();
+    }
     if (queueRef.current.length === 0 && !processingRef.current) {
       return Promise.resolve();
     }
     return new Promise((resolve) => {
       resolversRef.current.push(resolve);
     });
-  }, []);
+  }, [processQueue]);
 
   /** Get list of chunks that failed after all retries */
   const getFailedChunks = useCallback(() => {
