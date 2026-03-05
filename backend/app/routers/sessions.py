@@ -160,9 +160,16 @@ async def list_sessions(
 
             return sessions
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail="Failed to fetch sessions")
+        print(f"List sessions Supabase error: {e.response.status_code} {e.response.text}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to fetch sessions: {e.response.text}")
+    except httpx.ConnectError:
+        print("List sessions: cannot connect to Supabase")
+        raise HTTPException(status_code=503, detail="Database connection failed")
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error")
+        print(f"List sessions error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {type(e).__name__}: {str(e)}")
 
 
 @router.get("/{session_id}", response_model=SessionResponse)

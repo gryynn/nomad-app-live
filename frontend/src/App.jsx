@@ -43,6 +43,26 @@ function getTimeFilterDate(preset) {
 }
 
 
+// ─── Draft autosave (post-capture review) ────────────
+const DRAFT_KEY = "nomad-postcapture-draft";
+
+function saveDraft(data) {
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...data, savedAt: Date.now() })); }
+  catch (e) { /* quota exceeded — ignore */ }
+}
+
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (d.savedAt && Date.now() - d.savedAt > 24 * 3600_000) { localStorage.removeItem(DRAFT_KEY); return null; }
+    return d;
+  } catch { localStorage.removeItem(DRAFT_KEY); return null; }
+}
+
+function clearDraft() { localStorage.removeItem(DRAFT_KEY); }
+
 // ═══════════════════════════════════════════════════════
 // APP
 // ═══════════════════════════════════════════════════════
@@ -290,14 +310,30 @@ export default function App() {
         setError(`Sync: ${result.failed} échec(s) — ${result.errors.join(", ")}`);
       }
     });
-    // Recovery: detect orphaned recordings from crash
-    offline.getOrphanedRecordings().then((orphaned) => {
-      if (orphaned.length > 0) {
-        const rec = orphaned[0]; // recover first one
-        console.log("[RECOVERY] Found orphaned recording:", rec);
-        setRecoveryData(rec);
-      }
-    });
+    // Draft restore: recover post-capture review state after refresh
+    const draft = loadDraft();
+    if (draft && draft.recordingId) {
+      setRecMode(draft.recMode || null);
+      setPendingDuration(draft.pendingDuration || 0);
+      setRecTitle(draft.recTitle || "");
+      setRecNotesText(draft.recNotesText || "");
+      setLivePreviewText(draft.livePreviewText || "");
+      setSelectedEngine(draft.selectedEngine || "auto");
+      recordingIdRef.current = draft.recordingId;
+      offline.assembleRecording(draft.recordingId).then(blob => {
+        if (blob) { setPendingBlob(blob); setShowReview(true); }
+        else { clearDraft(); } // chunks gone, draft stale
+      });
+    } else {
+      // Recovery: detect orphaned recordings from crash (skip if draft restoring)
+      offline.getOrphanedRecordings().then((orphaned) => {
+        if (orphaned.length > 0) {
+          const rec = orphaned[0]; // recover first one
+          console.log("[RECOVERY] Found orphaned recording:", rec);
+          setRecoveryData(rec);
+        }
+      });
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (error) { const t = setTimeout(() => setError(null), 8000); return () => clearTimeout(t); }
@@ -307,11 +343,30 @@ export default function App() {
   useEffect(() => {
     const hasUnsaved = isRecording || showReview || transcriptDirty || sessionNotesDirty || pasteSaving || importUploading;
     if (!hasUnsaved) return;
-    const handler = (e) => { e.preventDefault(); e.returnValue = ""; };
+    const handler = (e) => {
+      if (showReview) {
+        saveDraft({ recMode, pendingDuration, recTitle, recNotesText,
+          livePreviewText, selectedEngine, recordingId: recordingIdRef.current });
+      }
+      e.preventDefault(); e.returnValue = "";
+    };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [isRecording, showReview, transcriptDirty, sessionNotesDirty, pasteSaving, importUploading]);
+  }, [isRecording, showReview, transcriptDirty, sessionNotesDirty, pasteSaving, importUploading,
+      recMode, pendingDuration, recTitle, recNotesText, livePreviewText, selectedEngine]);
 
+  // ─── Draft autosave (debounced 1s) ─────────────────
+  useEffect(() => {
+    if (!showReview) return;
+    const t = setTimeout(() => {
+      saveDraft({
+        recMode, pendingDuration, recTitle, recNotesText,
+        livePreviewText, selectedEngine,
+        recordingId: recordingIdRef.current,
+      });
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [showReview, recTitle, recNotesText, livePreviewText, selectedEngine, recMode, pendingDuration]);
 
   // Canvas audio visualizer animation loop
   useEffect(() => {
@@ -831,6 +886,7 @@ export default function App() {
       // Upload succeeded → clean up
       await offline.removePendingItem({ id: offlineId, _store: "recording" });
       if (recId) await offline.clearRecordingChunks(recId);
+      clearDraft();
 
       // Reset
       setPendingBlob(null);
@@ -855,6 +911,7 @@ export default function App() {
         : "";
       setError(`Upload échoué${errDetail} — audio ${sizeMB} MB sauvegardé localement. Cliquez le badge orange pour réessayer.`);
       console.error("[SAVE] Upload failed:", e);
+      clearDraft();
       // Clean up review screen
       setPendingBlob(null);
       setShowReview(false);
@@ -878,6 +935,7 @@ export default function App() {
     if (recordingIdRef.current) {
       offline.clearRecordingChunks(recordingIdRef.current);
     }
+    clearDraft();
     setPendingBlob(null);
     setShowReview(false);
     setRecTitle("");
