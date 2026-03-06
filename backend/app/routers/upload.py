@@ -3,6 +3,8 @@ from pydantic import BaseModel
 import httpx
 import uuid
 import tempfile
+import subprocess
+import os
 from pathlib import Path
 from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 
@@ -206,7 +208,13 @@ async def upload_audio_legacy(file: UploadFile = File(...)):
 
 @router.post("/assemble")
 async def assemble_chunks(req: AssembleRequest):
-    """Download chunks from nomad-audio-chunks, concatenate, upload to nomad-audio, create session."""
+    """Download chunks from nomad-audio-chunks, remux via ffmpeg, upload to nomad-audio, create session.
+
+    Each chunk is a complete WebM file with its own header. Simple binary
+    concatenation produces a corrupt file — only the first chunk's header is
+    valid. We use ffmpeg's concat demuxer to properly remux all chunks into a
+    single valid WebM container.
+    """
     user_id = "martun"
     storage_headers = {
         "apikey": SUPABASE_SERVICE_KEY,
@@ -217,9 +225,10 @@ async def assemble_chunks(req: AssembleRequest):
         ext = ".webm" if "webm" in req.mime_type else ".mp4"
         content_type = req.mime_type or "audio/webm"
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
-            # 1. Download all chunks and concatenate
-            with tempfile.SpooledTemporaryFile(max_size=50 * 1024 * 1024) as tmp:
+        with tempfile.TemporaryDirectory(prefix="nomad_assemble_") as tmpdir:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
+                # 1. Download all chunks to individual files
+                chunk_files = []
                 for i in range(req.chunk_count):
                     chunk_path = f"{req.session_id}/chunk_{str(i).zfill(4)}.webm"
                     chunk_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio-chunks/{chunk_path}"
@@ -229,73 +238,108 @@ async def assemble_chunks(req: AssembleRequest):
                             status_code=500,
                             detail=f"Failed to download chunk {i}: {resp.status_code} {resp.text[:200]}"
                         )
-                    tmp.write(resp.content)
+                    chunk_file = os.path.join(tmpdir, f"chunk_{str(i).zfill(4)}.webm")
+                    with open(chunk_file, "wb") as f:
+                        f.write(resp.content)
+                    chunk_files.append(chunk_file)
 
-                tmp.seek(0)
-                assembled_data = tmp.read()
+                # 2. Remux chunks via ffmpeg concat demuxer
+                concat_list = os.path.join(tmpdir, "concat.txt")
+                with open(concat_list, "w") as f:
+                    for cf in chunk_files:
+                        # ffmpeg concat requires forward slashes and escaped quotes
+                        safe_path = cf.replace("\\", "/")
+                        f.write(f"file '{safe_path}'\n")
 
-            # 2. Upload assembled file to nomad-audio
-            storage_path = f"{user_id}/{req.session_id}{ext}"
-            upload_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio/{storage_path}"
-            upload_resp = await client.post(
-                upload_url,
-                headers={**storage_headers, "Content-Type": content_type},
-                content=assembled_data,
-            )
-            if upload_resp.status_code not in (200, 201):
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Assembly upload failed ({upload_resp.status_code}): {upload_resp.text[:200]}"
+                output_file = os.path.join(tmpdir, f"assembled{ext}")
+                ffmpeg_cmd = [
+                    "ffmpeg", "-y",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", concat_list,
+                    "-c", "copy",
+                    output_file,
+                ]
+                result = subprocess.run(
+                    ffmpeg_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
                 )
+                if result.returncode != 0:
+                    print(f"[ASSEMBLE] ffmpeg stderr: {result.stderr[-500:]}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"ffmpeg remux failed (code {result.returncode}): {result.stderr[-200:]}"
+                    )
 
-            # 3. Create session record
-            audio_url = f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{storage_path}"
-            session_data = {
-                "id": req.session_id,
-                "user_id": user_id,
-                "duration_seconds": req.duration_seconds,
-                "input_mode": req.input_mode,
-                "status": "transcribed" if req.live_transcript else "uploaded",
-                "audio_url": audio_url,
-                "original_filename": f"{req.input_mode}_{req.session_id}{ext}",
-                "file_size_bytes": len(assembled_data),
-            }
-            if req.title:
-                session_data["title"] = req.title
-            if req.live_transcript:
-                session_data["transcript"] = req.live_transcript
+                with open(output_file, "rb") as f:
+                    assembled_data = f.read()
 
-            resp = await client.post(
-                f"{BASE_URL}/sessions",
-                headers=HEADERS,
-                json=session_data,
-            )
-            if resp.status_code not in (200, 201):
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Session create failed: {resp.text[:200]}"
+                print(f"[ASSEMBLE] {req.chunk_count} chunks → {len(assembled_data) / 1024 / 1024:.1f} MB")
+
+                # 3. Upload assembled file to nomad-audio
+                storage_path = f"{user_id}/{req.session_id}{ext}"
+                upload_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio/{storage_path}"
+                upload_resp = await client.post(
+                    upload_url,
+                    headers={**storage_headers, "Content-Type": content_type},
+                    content=assembled_data,
                 )
+                if upload_resp.status_code not in (200, 201):
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Assembly upload failed ({upload_resp.status_code}): {upload_resp.text[:200]}"
+                    )
 
-            # 4. Save notes if provided
-            if req.notes:
-                note_data = {
-                    "session_id": req.session_id,
+                # 4. Create session record
+                audio_url = f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{storage_path}"
+                session_data = {
+                    "id": req.session_id,
                     "user_id": user_id,
-                    "content": req.notes,
+                    "duration_seconds": req.duration_seconds,
+                    "input_mode": req.input_mode,
+                    "status": "transcribed" if req.live_transcript else "uploaded",
+                    "audio_url": audio_url,
+                    "original_filename": f"{req.input_mode}_{req.session_id}{ext}",
+                    "file_size_bytes": len(assembled_data),
                 }
-                await client.post(
-                    f"{BASE_URL}/notes",
-                    headers=HEADERS,
-                    json=note_data,
-                )
+                if req.title:
+                    session_data["title"] = req.title
+                if req.live_transcript:
+                    session_data["transcript"] = req.live_transcript
 
-            # 5. Delete chunks from nomad-audio-chunks
-            for i in range(req.chunk_count):
-                chunk_path = f"{req.session_id}/chunk_{str(i).zfill(4)}.webm"
-                await client.delete(
-                    f"{SUPABASE_URL}/storage/v1/object/nomad-audio-chunks/{chunk_path}",
-                    headers=storage_headers,
+                resp = await client.post(
+                    f"{BASE_URL}/sessions",
+                    headers=HEADERS,
+                    json=session_data,
                 )
+                if resp.status_code not in (200, 201):
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Session create failed: {resp.text[:200]}"
+                    )
+
+                # 5. Save notes if provided
+                if req.notes:
+                    note_data = {
+                        "session_id": req.session_id,
+                        "user_id": user_id,
+                        "content": req.notes,
+                    }
+                    await client.post(
+                        f"{BASE_URL}/notes",
+                        headers=HEADERS,
+                        json=note_data,
+                    )
+
+                # 6. Delete chunks from nomad-audio-chunks
+                for i in range(req.chunk_count):
+                    chunk_path = f"{req.session_id}/chunk_{str(i).zfill(4)}.webm"
+                    await client.delete(
+                        f"{SUPABASE_URL}/storage/v1/object/nomad-audio-chunks/{chunk_path}",
+                        headers=storage_headers,
+                    )
 
         return {"session_id": req.session_id, "audio_url": audio_url}
 

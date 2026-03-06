@@ -37,11 +37,16 @@ async def resolve_engine(engine: str, audio_url: str) -> str:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.head(audio_url)
             size = int(resp.headers.get("content-length", "0"))
-            if size > GROQ_SIZE_LIMIT and DEEPGRAM_API_KEY:
-                print(f"[AUTO-ENGINE] File {size / 1024 / 1024:.1f} MB > 25 MB → deepgram")
-                return "deepgram"
-    except Exception:
-        pass
+            if size > GROQ_SIZE_LIMIT:
+                if DEEPGRAM_API_KEY:
+                    print(f"[AUTO-ENGINE] File {size / 1024 / 1024:.1f} MB > 25 MB → deepgram")
+                    return "deepgram"
+                else:
+                    print(f"[AUTO-ENGINE] WARNING: File {size / 1024 / 1024:.1f} MB > 25 MB but no DEEPGRAM_API_KEY, Groq will likely fail")
+            else:
+                print(f"[AUTO-ENGINE] File {size / 1024 / 1024:.1f} MB ≤ 25 MB → groq-turbo")
+    except Exception as e:
+        print(f"[AUTO-ENGINE] HEAD request failed ({e}), defaulting to groq-turbo")
     return "groq-turbo"
 
 

@@ -75,17 +75,25 @@ class GroqService:
         segments = result.get("segments", [])
         word_count = len(transcript_text.split()) if transcript_text else 0
 
+        update_data = {
+            "transcript": transcript_text,
+            "transcript_segments": segments,
+            "transcript_words": word_count,
+            "engine_used": engine,
+            "status": "transcribed",
+            "error_message": None,
+        }
+
+        # Groq verbose_json includes duration
+        duration = result.get("duration")
+        if duration:
+            update_data["duration_seconds"] = int(duration)
+
         async with httpx.AsyncClient() as client:
             resp = await client.patch(
                 f"{BASE_URL}/sessions?id=eq.{session_id}",
                 headers=HEADERS,
-                json={
-                    "transcript": transcript_text,
-                    "transcript_segments": segments,
-                    "transcript_words": word_count,
-                    "engine_used": engine,
-                    "status": "transcribed",
-                },
+                json=update_data,
             )
             if resp.status_code not in (200, 204):
                 raise Exception(f"Failed to update session {session_id}: {resp.text}")

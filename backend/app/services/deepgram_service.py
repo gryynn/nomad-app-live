@@ -106,6 +106,7 @@ class DeepgramService:
             "transcript_words": word_count,
             "engine_used": "deepgram",
             "status": "transcribed",
+            "error_message": None,
         }
         if duration:
             update_data["duration_seconds"] = int(duration)
