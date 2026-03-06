@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 import httpx
 from app.models.schemas import TranscribeRequest
 from app.services.queue_manager import QueueManager
-from app.services.groq_service import GroqService
+from app.services.groq_service import GroqService, GroqFileTooLargeError
 from app.services.deepgram_service import DeepgramService
 from app.services.wynona_service import WynonaService
 from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY, DEEPGRAM_API_KEY
@@ -32,21 +32,40 @@ async def resolve_engine(engine: str, audio_url: str) -> str:
     """Auto-select engine based on file size when engine is 'auto'."""
     if engine != "auto":
         return engine
-    # Check file size via HEAD request
+    # Check file size via HEAD request (try with Supabase auth headers too)
+    size = 0
     try:
+        auth_headers = {
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        }
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.head(audio_url)
+            # Try HEAD with auth first (Supabase private buckets need it)
+            resp = await client.head(audio_url, headers=auth_headers)
             size = int(resp.headers.get("content-length", "0"))
-            if size > GROQ_SIZE_LIMIT:
-                if DEEPGRAM_API_KEY:
-                    print(f"[AUTO-ENGINE] File {size / 1024 / 1024:.1f} MB > 25 MB → deepgram")
-                    return "deepgram"
-                else:
-                    print(f"[AUTO-ENGINE] WARNING: File {size / 1024 / 1024:.1f} MB > 25 MB but no DEEPGRAM_API_KEY, Groq will likely fail")
-            else:
-                print(f"[AUTO-ENGINE] File {size / 1024 / 1024:.1f} MB ≤ 25 MB → groq-turbo")
+            # If HEAD returned 0, try GET with Range header to discover actual size
+            if size == 0:
+                resp2 = await client.get(
+                    audio_url, headers={**auth_headers, "Range": "bytes=0-0"}
+                )
+                # Content-Range: bytes 0-0/TOTAL_SIZE
+                cr = resp2.headers.get("content-range", "")
+                if "/" in cr:
+                    size = int(cr.split("/")[-1])
+                    print(f"[AUTO-ENGINE] Got size from Content-Range: {size / 1024 / 1024:.1f} MB")
     except Exception as e:
-        print(f"[AUTO-ENGINE] HEAD request failed ({e}), defaulting to groq-turbo")
+        print(f"[AUTO-ENGINE] Size check failed ({e}), defaulting to groq-turbo")
+
+    if size > GROQ_SIZE_LIMIT:
+        if DEEPGRAM_API_KEY:
+            print(f"[AUTO-ENGINE] File {size / 1024 / 1024:.1f} MB > 25 MB → deepgram")
+            return "deepgram"
+        else:
+            print(f"[AUTO-ENGINE] WARNING: File {size / 1024 / 1024:.1f} MB > 25 MB but no DEEPGRAM_API_KEY, Groq will likely fail")
+    elif size > 0:
+        print(f"[AUTO-ENGINE] File {size / 1024 / 1024:.1f} MB ≤ 25 MB → groq-turbo")
+    else:
+        print(f"[AUTO-ENGINE] Could not determine file size, defaulting to groq-turbo")
     return "groq-turbo"
 
 
@@ -70,7 +89,21 @@ async def process_transcription(job_id: str, session_id: str, engine: str, audio
             pass
 
         if resolved in ["groq-turbo", "groq-large"]:
-            await groq_service.transcribe(session_id, audio_url, resolved)
+            try:
+                await groq_service.transcribe(session_id, audio_url, resolved)
+            except GroqFileTooLargeError as e:
+                if DEEPGRAM_API_KEY:
+                    print(f"[TRANSCRIBE] Groq rejected ({e}), falling back to deepgram")
+                    resolved = "deepgram"
+                    async with httpx.AsyncClient() as client:
+                        await client.patch(
+                            f"{BASE_URL}/sessions?id=eq.{session_id}",
+                            headers=HEADERS,
+                            json={"engine_used": "deepgram"},
+                        )
+                    await deepgram_service.transcribe(session_id, audio_url)
+                else:
+                    raise
             queue_manager.update_status(job_id, "completed")
         elif resolved == "deepgram":
             await deepgram_service.transcribe(session_id, audio_url)

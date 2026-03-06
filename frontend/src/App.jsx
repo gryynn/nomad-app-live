@@ -814,15 +814,15 @@ export default function App() {
       // Try server-side assembly if chunks were uploaded
       if (recId && totalChunks > 0) {
         try {
-          // Wait for all chunk uploads to complete
+          // Wait for in-flight chunk uploads (usually just the last one)
           setSaveStep("chunks");
           await chunkUploader.waitForAllUploads();
           const failed = chunkUploader.getFailedChunks();
 
           if (failed.length === 0) {
-            // All chunks uploaded — use server-side assembly
+            // All chunks uploaded — create session + queue background assembly
             setSaveStep("assemble");
-            console.log(`[SAVE] All ${totalChunks} chunks uploaded, requesting assembly`);
+            console.log(`[SAVE] All ${totalChunks} chunks uploaded, requesting background assembly`);
             const assembleResult = await api.assembleChunks({
               session_id: recId,
               chunk_count: totalChunks,
@@ -835,16 +835,16 @@ export default function App() {
             });
             sessionId = assembleResult.session_id;
             assemblyUsed = true;
-            console.log("[SAVE] Server-side assembly OK:", assembleResult);
+            console.log("[SAVE] Session created, assembly running in background");
           } else {
             console.warn(`[SAVE] ${failed.length} chunks failed upload, falling back to direct upload`);
           }
         } catch (assembleErr) {
-          console.warn("[SAVE] Assembly failed, falling back to direct upload:", assembleErr.message);
+          console.warn("[SAVE] Assembly request failed, falling back to direct upload:", assembleErr.message);
         }
       }
 
-      // Fallback: direct upload of assembled blob
+      // Fallback: direct upload of assembled blob (only if chunk path failed)
       if (!assemblyUsed) {
         setSaveStep("upload");
         const file = new File([pendingBlob], fileName, { type: pendingBlob.type });
@@ -880,14 +880,18 @@ export default function App() {
       }
 
       // Optionally trigger transcription
-      if (doTranscribe) {
+      if (doTranscribe && !assemblyUsed) {
+        // Direct upload path — audio_url is ready, can transcribe now
         console.log("[SAVE] triggering transcription, engine:", selectedEngine);
         const trResult = await api.transcribe(sessionId, selectedEngine);
         console.log("[SAVE] transcribe result:", trResult);
         setSuccess(`Session sauvegardée, transcription lancée (${selectedEngine})...`);
         pollTranscription(sessionId);
+      } else if (doTranscribe && assemblyUsed) {
+        // Assembly path — audio not ready yet, user will transcribe from session list
+        setSuccess("Session sauvegardée ! Assembly en cours... Transcription disponible dans quelques instants.");
       } else {
-        setSuccess("Session sauvegardée");
+        setSuccess(assemblyUsed ? "Session sauvegardée ! Assembly audio en cours..." : "Session sauvegardée");
       }
 
       // Upload succeeded → clean up
@@ -2131,7 +2135,7 @@ export default function App() {
                 </div>
                 {/* Status */}
                 <div className="filter-chips">
-                  {["all", "pending", "uploaded", "transcribed", "error"].map((st) => (
+                  {["all", "pending", "assembling", "uploaded", "transcribed", "error"].map((st) => (
                     <button
                       key={st}
                       className={`filter-chip ${filterStatus === st ? "active" : ""}`}
@@ -2221,8 +2225,8 @@ export default function App() {
                     )}
                     <div className="meta">
                       <span className={`status ${s.status}`}>
-                        {s.status === "processing" && <span className="status-spinner" />}
-                        {s.status === "transcribed" ? "transcrit" : s.status === "uploaded" ? "uploadé" : s.status === "processing" ? "en cours..." : s.status === "error" ? "erreur" : s.status}
+                        {(s.status === "processing" || s.status === "assembling") && <span className="status-spinner" />}
+                        {s.status === "transcribed" ? "transcrit" : s.status === "uploaded" ? "uploadé" : s.status === "processing" ? "en cours..." : s.status === "assembling" ? "assembly..." : s.status === "error" ? "erreur" : s.status}
                       </span>
                       {s.engine_used ? ` · ${s.engine_used}` : ""}
                       {s.duration_seconds ? ` · ${formatDuration(s.duration_seconds)}` : ""}

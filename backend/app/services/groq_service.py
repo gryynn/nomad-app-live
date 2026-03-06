@@ -12,6 +12,16 @@ HEADERS = {
 BASE_URL = f"{SUPABASE_URL}/rest/v1"
 
 
+GROQ_SIZE_LIMIT = 25 * 1024 * 1024  # 25 MB
+
+
+class GroqFileTooLargeError(Exception):
+    """Raised when audio file exceeds Groq's 25 MB limit."""
+    def __init__(self, size: int):
+        self.size = size
+        super().__init__(f"Audio file {size / 1024 / 1024:.1f} MB exceeds Groq 25 MB limit")
+
+
 class GroqService:
 
     def __init__(self):
@@ -33,6 +43,8 @@ class GroqService:
             raise ValueError("GROQ_API_KEY is not configured")
 
         audio_data = await self._download_audio(audio_url)
+        if len(audio_data) > GROQ_SIZE_LIMIT:
+            raise GroqFileTooLargeError(len(audio_data))
         result = await self._call_groq_api(audio_data, engine, audio_url)
         await self._store_transcript(session_id, result, engine)
         return result

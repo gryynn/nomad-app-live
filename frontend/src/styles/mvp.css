@@ -418,7 +418,7 @@ label {
 }
 .status.pending { background: rgba(255,170,51,0.15); color: var(--orange); }
 .status.transcribed, .status.done { background: rgba(68,204,102,0.15); color: var(--green); }
-.status.processing, .status.recording { background: rgba(255,255,255,0.1); color: var(--accent); }
+.status.processing, .status.recording, .status.assembling { background: rgba(255,255,255,0.1); color: var(--accent); }
 .status.error { background: rgba(255,68,68,0.15); color: var(--red); }
 .status.uploaded { background: rgba(100,150,255,0.15); color: #6496ff; }
 
