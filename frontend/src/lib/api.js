@@ -241,3 +241,7 @@ export const getQueue = () => request("/api/transcribe/queue");
 // Chunk assembly
 export const assembleChunks = (data) =>
   request("/api/upload/assemble", { method: "POST", body: JSON.stringify(data) });
+
+// Chunk transcription (LIVE mode — transcribe individual chunks during recording)
+export const transcribeChunk = (sessionId, seq) =>
+  request(`/api/transcribe/chunk/${sessionId}/${seq}`, { method: "POST" });

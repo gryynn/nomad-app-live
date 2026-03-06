@@ -10,6 +10,7 @@ export function useChunkUploader() {
   const processingRef = useRef(false);
   const failedRef = useRef([]);
   const resolversRef = useRef([]); // waitForAllUploads resolvers
+  const onUploadedRef = useRef(null); // callback(sessionId, seq) on successful upload
 
   const processQueue = useCallback(async () => {
     if (processingRef.current) return;
@@ -61,6 +62,10 @@ export function useChunkUploader() {
 
       if (success) {
         setProgress((prev) => ({ ...prev, uploaded: prev.uploaded + 1 }));
+        // Notify caller (e.g., LIVE mode chunk transcription)
+        if (onUploadedRef.current) {
+          try { onUploadedRef.current(item.sessionId, item.seq); } catch (_) {}
+        }
       } else if (!navigator.onLine) {
         // Went offline mid-retry → put back in queue (will wait for online at top of loop)
         queueRef.current.unshift(item);
@@ -138,11 +143,17 @@ export function useChunkUploader() {
     setProgress({ uploaded: 0, total: 0, isUploading: false });
   }, []);
 
+  /** Set callback for when a chunk is successfully uploaded: fn(sessionId, seq) */
+  const setOnUploaded = useCallback((fn) => {
+    onUploadedRef.current = fn;
+  }, []);
+
   return {
     progress,
     uploadChunk,
     waitForAllUploads,
     getFailedChunks,
     reset,
+    setOnUploaded,
   };
 }

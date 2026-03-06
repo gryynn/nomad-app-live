@@ -38,6 +38,12 @@ class GroqService:
         ".flac": ("audio.flac", "audio/flac"),
     }
 
+    async def transcribe_chunk(self, audio_data: bytes, engine: str = "groq-turbo") -> dict:
+        """Transcribe raw audio bytes without storing to DB. For chunk-by-chunk LIVE mode."""
+        if not self.api_key:
+            raise ValueError("GROQ_API_KEY is not configured")
+        return await self._call_groq_api(audio_data, engine, "audio.webm")
+
     async def transcribe(self, session_id: str, audio_url: str, engine: str = "groq-turbo") -> dict:
         if not self.api_key:
             raise ValueError("GROQ_API_KEY is not configured")

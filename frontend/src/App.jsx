@@ -139,6 +139,10 @@ export default function App() {
   const [liveEditText, setLiveEditText] = useState("");
   const lastSpeechLenRef = useRef(0);
 
+  // Whisper chunk-by-chunk transcription (LIVE mode)
+  const whisperSegmentsRef = useRef([]); // [{seq, text}] ordered by seq
+  const [whisperText, setWhisperText] = useState(""); // concatenated Whisper transcript
+
   // Post-stop review
   const [recTitle, setRecTitle] = useState("");
   const [pendingBlob, setPendingBlob] = useState(null);
@@ -429,6 +433,35 @@ export default function App() {
     }
   }, [speech.transcript, isRecording, recMode, speech.isListening, speech.interimText]);
 
+  // LIVE mode: transcribe each chunk via Whisper as it's uploaded
+  useEffect(() => {
+    chunkUploader.setOnUploaded((sessionId, seq) => {
+      if (recMode !== "live" || !isRecording) return;
+      console.log(`[LIVE-WHISPER] Chunk ${seq} uploaded, requesting transcription...`);
+      api.transcribeChunk(sessionId, seq)
+        .then((result) => {
+          if (!result.text) return;
+          console.log(`[LIVE-WHISPER] Chunk ${seq}: "${result.text.slice(0, 60)}..."`);
+          // Insert segment in order
+          const segments = whisperSegmentsRef.current;
+          const existing = segments.findIndex((s) => s.seq === seq);
+          if (existing >= 0) {
+            segments[existing] = { seq, text: result.text };
+          } else {
+            segments.push({ seq, text: result.text });
+            segments.sort((a, b) => a.seq - b.seq);
+          }
+          // Build concatenated transcript
+          const full = segments.map((s) => s.text).join(" ");
+          setWhisperText(full);
+        })
+        .catch((err) => {
+          console.warn(`[LIVE-WHISPER] Chunk ${seq} transcription failed:`, err.message);
+        });
+    });
+    return () => chunkUploader.setOnUploaded(null);
+  }, [recMode, isRecording]);
+
   // ─── Flow A: Paste ──────────────────────────────
   async function handlePasteSave() {
     if (!pasteText.trim()) { setError("Le texte est vide"); return; }
@@ -576,6 +609,8 @@ export default function App() {
       recNotesTextRef.current = "";
       recMimeTypeRef.current = mimeType || "audio/webm";
       chunkUploader.reset();
+      whisperSegmentsRef.current = [];
+      setWhisperText("");
       offline.startActiveRecording(recId, captureMode, mimeType || "audio/webm");
 
       // Flush timer: every 30s, snapshot chunks → IDB + upload
@@ -652,9 +687,14 @@ export default function App() {
         audioCtxRef.current = null;
         analyserRef.current = null;
       }
-      // Save edited live transcript before stopping speech
-      if (recMode === "live" && liveEditText) {
-        setLivePreviewText(liveEditText.trim());
+      // Save live transcript: prefer Whisper (higher quality) over Speech API
+      if (recMode === "live") {
+        if (whisperText.trim()) {
+          console.log("[LIVE] Using Whisper transcript:", whisperText.length, "chars");
+          setLivePreviewText(whisperText.trim());
+        } else if (liveEditText) {
+          setLivePreviewText(liveEditText.trim());
+        }
       }
       speech.stop();
       mediaRecorderRef.current.stop();
@@ -906,6 +946,8 @@ export default function App() {
       setRecNotesText("");
       setLivePreviewText("");
       setLiveEditText("");
+      setWhisperText("");
+      whisperSegmentsRef.current = [];
       lastSpeechLenRef.current = 0;
       setLiveSessionId(null);
       setRecMode(null);
@@ -930,6 +972,8 @@ export default function App() {
       setRecNotesText("");
       setLivePreviewText("");
       setLiveEditText("");
+      setWhisperText("");
+      whisperSegmentsRef.current = [];
       lastSpeechLenRef.current = 0;
       setLiveSessionId(null);
       setRecMode(null);
@@ -1721,6 +1765,11 @@ export default function App() {
                         />
                         {speech.interimText && (
                           <div className="live-interim">{speech.interimText}...</div>
+                        )}
+                        {whisperText && (
+                          <div style={{ fontSize: 11, color: "var(--accent)", padding: "4px 8px", opacity: 0.8 }}>
+                            Whisper: {whisperSegmentsRef.current.length} chunks transcrits · {whisperText.split(/\s+/).filter(Boolean).length} mots
+                          </div>
                         )}
                         {speech.error && (
                           <div className="error-msg" style={{ fontSize: 12, padding: "6px 10px" }}>

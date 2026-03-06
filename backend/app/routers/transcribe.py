@@ -187,6 +187,47 @@ async def transcribe_session(
     }
 
 
+@router.post("/chunk/{session_id}/{seq}")
+async def transcribe_chunk(session_id: str, seq: int):
+    """Transcribe a single chunk from nomad-audio-chunks. Returns transcript text immediately."""
+    chunk_path = f"{session_id}/chunk_{str(seq).zfill(4)}.webm"
+    chunk_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio-chunks/{chunk_path}"
+
+    try:
+        # Download chunk from Supabase Storage
+        storage_headers = {
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(chunk_url, headers=storage_headers)
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Chunk not found: {chunk_path}"
+                )
+            audio_data = resp.content
+
+        # Transcribe via Groq (30s chunk = ~500KB, well under 25MB limit)
+        result = await groq_service.transcribe_chunk(audio_data)
+        text = result.get("text", "").strip()
+        duration = result.get("duration", 0)
+
+        print(f"[CHUNK-TR] {session_id} seq={seq} → {len(text.split())} words, {duration:.1f}s")
+        return {
+            "seq": seq,
+            "text": text,
+            "duration": duration,
+            "segments": result.get("segments", []),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[CHUNK-TR] Failed {session_id} seq={seq}: {e}")
+        raise HTTPException(status_code=500, detail=f"Chunk transcription failed: {str(e)}")
+
+
 @router.get("/queue")
 async def get_queue():
     jobs = queue_manager.get_jobs()
