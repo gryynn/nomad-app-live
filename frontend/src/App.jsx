@@ -884,7 +884,8 @@ export default function App() {
         console.log("[SAVE] triggering transcription, engine:", selectedEngine);
         const trResult = await api.transcribe(sessionId, selectedEngine);
         console.log("[SAVE] transcribe result:", trResult);
-        setSuccess("Session sauvegardée, transcription lancée");
+        setSuccess(`Session sauvegardée, transcription lancée (${selectedEngine})...`);
+        pollTranscription(sessionId);
       } else {
         setSuccess("Session sauvegardée");
       }
@@ -993,26 +994,42 @@ export default function App() {
   }
 
   // ─── Transcribe ─────────────────────────────────
-  async function handleTranscribe(sessionId) {
-    setError(null);
-    try {
-      const result = await api.transcribe(sessionId, selectedEngine);
-      setSuccess(`Transcription lancée (job: ${result.job_id})`);
-      // Poll for completion
-      const poll = async (attempts = 0) => {
-        if (attempts > 12) return; // max 60s
-        await loadSessions();
+  function pollTranscription(sessionId) {
+    const poll = async (attempts = 0) => {
+      if (attempts > 60) {
+        setError("Transcription timeout — vérifiez la session manuellement");
+        return;
+      }
+      try {
         const detail = await api.getSession(sessionId);
-        if (detail.transcript) {
+        if (detail.status === "transcribed" && detail.transcript) {
+          await loadSessions();
           setExpandedSession(detail);
           setEditingTranscript(detail.transcript);
           setTranscriptDirty(false);
           setSuccess(`Transcription terminée (${detail.transcript_words} mots)`);
-        } else {
-          setTimeout(() => poll(attempts + 1), 5000);
+          return;
         }
-      };
-      setTimeout(() => poll(), 3000);
+        if (detail.status === "error") {
+          await loadSessions();
+          setExpandedSession(detail);
+          setError(`Transcription échouée: ${detail.error_message || "erreur inconnue"}`);
+          return;
+        }
+      } catch (e) {
+        console.warn("[POLL] fetch error:", e.message);
+      }
+      setTimeout(() => poll(attempts + 1), 3000);
+    };
+    setTimeout(() => poll(), 2000);
+  }
+
+  async function handleTranscribe(sessionId) {
+    setError(null);
+    try {
+      const result = await api.transcribe(sessionId, selectedEngine);
+      setSuccess(`Transcription lancée (${selectedEngine})...`);
+      pollTranscription(sessionId);
     } catch (e) {
       setError(`Erreur transcription: ${e.message}`);
     }
@@ -2203,7 +2220,11 @@ export default function App() {
                       </div>
                     )}
                     <div className="meta">
-                      <span className={`status ${s.status}`}>{s.status}</span>
+                      <span className={`status ${s.status}`}>
+                        {s.status === "processing" && <span className="status-spinner" />}
+                        {s.status === "transcribed" ? "transcrit" : s.status === "uploaded" ? "uploadé" : s.status === "processing" ? "en cours..." : s.status === "error" ? "erreur" : s.status}
+                      </span>
+                      {s.engine_used ? ` · ${s.engine_used}` : ""}
                       {s.duration_seconds ? ` · ${formatDuration(s.duration_seconds)}` : ""}
                       {s.transcript_words ? ` · ${s.transcript_words} mots` : ""}
                       {" · "}{formatDate(s.created_at)}

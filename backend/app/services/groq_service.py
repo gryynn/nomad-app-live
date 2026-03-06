@@ -61,6 +61,7 @@ class GroqService:
             "model": model,
             "response_format": "verbose_json",
             "temperature": 0.0,
+            "language": "fr",
         }
 
         async with httpx.AsyncClient(timeout=600.0) as client:
