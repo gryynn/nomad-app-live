@@ -145,6 +145,7 @@ export default function App() {
   const [pendingDuration, setPendingDuration] = useState(0);
   const [showReview, setShowReview] = useState(false);
   const [reviewSaving, setReviewSaving] = useState(false);
+  const [saveStep, setSaveStep] = useState(""); // "chunks", "assemble", "upload", "tags", ""
   const [tagSuggestions, setTagSuggestions] = useState([]);
   const [tagSuggestPos, setTagSuggestPos] = useState(null);
 
@@ -776,6 +777,7 @@ export default function App() {
     }
     console.log("[SAVE] pendingBlob:", pendingBlob.size, "bytes, type:", pendingBlob.type);
     setReviewSaving(true);
+    setSaveStep("chunks");
     setError(null);
 
     const ext = pendingBlob.type.includes("mp4") ? "mp4" : "webm";
@@ -813,11 +815,13 @@ export default function App() {
       if (recId && totalChunks > 0) {
         try {
           // Wait for all chunk uploads to complete
+          setSaveStep("chunks");
           await chunkUploader.waitForAllUploads();
           const failed = chunkUploader.getFailedChunks();
 
           if (failed.length === 0) {
             // All chunks uploaded — use server-side assembly
+            setSaveStep("assemble");
             console.log(`[SAVE] All ${totalChunks} chunks uploaded, requesting assembly`);
             const assembleResult = await api.assembleChunks({
               session_id: recId,
@@ -842,6 +846,7 @@ export default function App() {
 
       // Fallback: direct upload of assembled blob
       if (!assemblyUsed) {
+        setSaveStep("upload");
         const file = new File([pendingBlob], fileName, { type: pendingBlob.type });
         console.log("[SAVE] uploading file:", file.name, file.size, "bytes");
         const result = await api.uploadAudio(file);
@@ -865,6 +870,7 @@ export default function App() {
       }
 
       // Extract tags from notes, auto-create missing ones, and apply to session
+      setSaveStep("tags");
       const hashtags = extractHashtags(recNotesText);
       if (hashtags.length > 0) {
         const tagIds = await ensureTagsExist(hashtags);
@@ -927,6 +933,7 @@ export default function App() {
       recordingIdRef.current = null;
     } finally {
       setReviewSaving(false);
+      setSaveStep("");
     }
   }
 
@@ -1799,6 +1806,36 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Chunk upload progress (visible during review) */}
+                {chunkUploader.progress.total > 0 && !reviewSaving && (
+                  <div className="chunk-progress-bar">
+                    <div className="chunk-progress-track">
+                      <div
+                        className="chunk-progress-fill"
+                        style={{ width: `${Math.round((chunkUploader.progress.uploaded / chunkUploader.progress.total) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="chunk-progress-label">
+                      {chunkUploader.progress.uploaded === chunkUploader.progress.total
+                        ? "✓ Chunks synchronisés"
+                        : `Sync ${chunkUploader.progress.uploaded}/${chunkUploader.progress.total} chunks...`}
+                    </span>
+                  </div>
+                )}
+
+                {/* Save step progress */}
+                {reviewSaving && saveStep && (
+                  <div className="save-step-indicator">
+                    <div className="save-step-spinner" />
+                    <span>
+                      {saveStep === "chunks" && `Synchronisation chunks ${chunkUploader.progress.uploaded}/${chunkUploader.progress.total}...`}
+                      {saveStep === "assemble" && "Assemblage audio sur le serveur..."}
+                      {saveStep === "upload" && "Upload du fichier audio..."}
+                      {saveStep === "tags" && "Finalisation..."}
+                    </span>
+                  </div>
+                )}
+
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <button
                     className="btn btn-primary"
@@ -1813,6 +1850,7 @@ export default function App() {
                       className="engine-select"
                       value={selectedEngine}
                       onChange={(e) => setSelectedEngine(e.target.value)}
+                      disabled={reviewSaving}
                     >
                       {engines.filter((e) => e.status === "online").map((eng) => (
                         <option key={eng.id} value={eng.id}>
