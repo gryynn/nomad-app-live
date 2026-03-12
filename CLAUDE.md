@@ -69,12 +69,39 @@ Long recordings are safe against crashes and memory pressure:
 - **Limits**: ~20h recording capacity (500MB bucket / ~25KB/s webm), max 30s data loss on crash
 - **Key hooks**: `useOfflineSync.js` (chunk stores), `useChunkUploader.js` (upload queue with retry)
 
+## Keyboard Shortcuts (v0.12.0+)
+
+Global keyboard shortcuts for recording control, individually toggleable:
+
+| Context | Key | Action |
+|---------|-----|--------|
+| Home | `R` | Start REC mode |
+| Home | `L` | Start LIVE mode |
+| Recording | `Space` | Stop recording |
+| Recording | `P` | Pause / Resume |
+| Recording | `M` | Insert timestamp mark |
+| Recording | `Esc` | Cancel recording |
+
+- Shortcuts are disabled when typing in input/textarea fields (except Esc)
+- Each shortcut can be toggled on/off via gear icon below mode buttons
+- Preferences persisted in `localStorage` (`nomad-shortcut-prefs`)
+- Implementation: `useKeyboardShortcuts.js` hook
+
+## Persisted UI State (v0.12.1+)
+
+Session filters and shortcut preferences survive page refreshes via `localStorage`:
+
+- `nomad-filter-status`, `nomad-filter-search`, `nomad-filter-tags`, `nomad-filter-time`
+- `nomad-filter-date-from`, `nomad-filter-date-to`
+- `nomad-shortcut-prefs`
+- Implementation: `usePersistedState.js` hook (generic localStorage-backed useState)
+
 ## Frontend Structure
 
 ```
 frontend/src/
   components/   # Reusable UI components
-  hooks/        # Custom React hooks (audio, devices, engine, theme, offline, chunkUploader)
+  hooks/        # Custom React hooks (audio, devices, engine, theme, offline, chunkUploader, keyboardShortcuts, persistedState)
   lib/          # API clients (api.js), Supabase client (supabase.js)
   pages/        # Route-level components
   styles/       # Theme tokens, mvp.css
