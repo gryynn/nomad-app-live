@@ -3,6 +3,7 @@ import * as api from "./lib/api.js";
 import useSpeechRecognition from "./hooks/useSpeechRecognition.js";
 import { useOfflineSync } from "./hooks/useOfflineSync.js";
 import { useChunkUploader } from "./hooks/useChunkUploader.js";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts.js";
 
 // ─── Helpers ──────────────────────────────────────────
 function formatDate(iso) {
@@ -195,6 +196,20 @@ export default function App() {
   const [syncPanelOpen, setSyncPanelOpen] = useState(false);
   const [syncPanelItems, setSyncPanelItems] = useState([]);
   const [syncingItemId, setSyncingItemId] = useState(null);
+
+  // ─── Keyboard shortcuts ──────────────────────────
+  useKeyboardShortcuts({
+    isRecording,
+    isPaused,
+    showReview,
+    mode,
+    expandedId,
+    startRecording,
+    stopRecording,
+    pauseRecording,
+    cancelRecording,
+    insertMark,
+  });
 
   // ─── Load data ────────────────────────────────────
   const loadSessions = useCallback(async (filters = {}) => {
@@ -1659,12 +1674,12 @@ export default function App() {
             )}
 
             {/* Mode buttons — one click to capture */}
-            {!isRecording && mode === null && !showReview && (
+            {!isRecording && mode === null && !showReview && (<>
               <div className="mode-bar">
-                <button className="mode-btn rec" onClick={() => startRecording("rec")}>
+                <button className="mode-btn rec" onClick={() => startRecording("rec")} title="Raccourci: R">
                   🎙️ REC
                 </button>
-                <button className="mode-btn" onClick={() => startRecording("live")}>
+                <button className="mode-btn" onClick={() => startRecording("live")} title="Raccourci: L">
                   📡 LIVE
                 </button>
                 <button className="mode-btn" onClick={() => setMode("import")}>
@@ -1674,7 +1689,10 @@ export default function App() {
                   📋 Paste
                 </button>
               </div>
-            )}
+              <div className="shortcut-hint">
+                <kbd>R</kbd> REC {"\u00A0"} <kbd>L</kbd> LIVE {"\u00A0"} En cours: <kbd>Space</kbd> Stop {"\u00A0"} <kbd>P</kbd> Pause {"\u00A0"} <kbd>Esc</kbd> Annuler
+              </div>
+            </>)}
 
             {/* ─── RECORDING UI (REC or LIVE) ──────── */}
             {isRecording && (

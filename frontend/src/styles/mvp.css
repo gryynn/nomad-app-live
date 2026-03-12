@@ -165,6 +165,24 @@ html, body {
   color: var(--red);
   background: rgba(255, 68, 68, 0.05);
 }
+.shortcut-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.5;
+  margin-top: -8px;
+  margin-bottom: 12px;
+}
+.shortcut-hint kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text);
+}
 
 /* Forms */
 input[type="text"], textarea, select {
