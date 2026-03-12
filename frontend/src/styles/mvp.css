@@ -166,13 +166,19 @@ html, body {
   background: rgba(255, 68, 68, 0.05);
 }
 .shortcut-hint {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   font-size: 11px;
   color: var(--text-muted);
   opacity: 0.5;
   margin-top: -8px;
   margin-bottom: 12px;
+  transition: opacity 0.15s;
 }
+.shortcut-hint:hover { opacity: 0.8; }
 .shortcut-hint kbd {
   display: inline-block;
   padding: 1px 5px;
@@ -182,6 +188,62 @@ html, body {
   border-radius: 3px;
   background: var(--surface);
   color: var(--text);
+}
+.shortcut-hint-item { white-space: nowrap; }
+.shortcut-settings-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.shortcut-settings-btn:hover { opacity: 1; }
+.shortcut-settings {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.shortcut-settings-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.shortcut-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.shortcut-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+.shortcut-toggle kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text);
+  min-width: 28px;
+  text-align: center;
+}
+.shortcut-context {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 /* Forms */

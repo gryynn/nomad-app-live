@@ -3,7 +3,8 @@ import * as api from "./lib/api.js";
 import useSpeechRecognition from "./hooks/useSpeechRecognition.js";
 import { useOfflineSync } from "./hooks/useOfflineSync.js";
 import { useChunkUploader } from "./hooks/useChunkUploader.js";
-import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts.js";
+import { useKeyboardShortcuts, SHORTCUT_DEFS } from "./hooks/useKeyboardShortcuts.js";
+import { usePersistedState } from "./hooks/usePersistedState.js";
 
 // ─── Helpers ──────────────────────────────────────────
 function formatDate(iso) {
@@ -165,15 +166,15 @@ export default function App() {
   const [notesOpen, setNotesOpen] = useState(true);
   const [sessionsOpen, setSessionsOpen] = useState(false);
 
-  // Session filters
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [filterSearch, setFilterSearch] = useState("");
-  const [filterTagIds, setFilterTagIds] = useState([]);
-  const [filterTime, setFilterTime] = useState("all");
+  // Session filters (persisted across refreshes)
+  const [filterStatus, setFilterStatus] = usePersistedState("nomad-filter-status", "all");
+  const [filterSearch, setFilterSearch] = usePersistedState("nomad-filter-search", "");
+  const [filterTagIds, setFilterTagIds] = usePersistedState("nomad-filter-tags", []);
+  const [filterTime, setFilterTime] = usePersistedState("nomad-filter-time", "all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterTagsExpanded, setFilterTagsExpanded] = useState(false);
-  const [filterDateFrom, setFilterDateFrom] = useState("");
-  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = usePersistedState("nomad-filter-date-from", "");
+  const [filterDateTo, setFilterDateTo] = usePersistedState("nomad-filter-date-to", "");
   const [showDateRange, setShowDateRange] = useState(false);
   const filterSearchTimer = useRef(null);
 
@@ -198,7 +199,7 @@ export default function App() {
   const [syncingItemId, setSyncingItemId] = useState(null);
 
   // ─── Keyboard shortcuts ──────────────────────────
-  useKeyboardShortcuts({
+  const { shortcuts, setShortcutEnabled } = useKeyboardShortcuts({
     isRecording,
     isPaused,
     showReview,
@@ -210,6 +211,7 @@ export default function App() {
     cancelRecording,
     insertMark,
   });
+  const [shortcutSettingsOpen, setShortcutSettingsOpen] = useState(false);
 
   // ─── Load data ────────────────────────────────────
   const loadSessions = useCallback(async (filters = {}) => {
@@ -1690,8 +1692,33 @@ export default function App() {
                 </button>
               </div>
               <div className="shortcut-hint">
-                <kbd>R</kbd> REC {"\u00A0"} <kbd>L</kbd> LIVE {"\u00A0"} En cours: <kbd>Space</kbd> Stop {"\u00A0"} <kbd>P</kbd> Pause {"\u00A0"} <kbd>Esc</kbd> Annuler
+                {SHORTCUT_DEFS.filter((s) => shortcuts[s.id]).map((s) => (
+                  <span key={s.id} className="shortcut-hint-item">
+                    <kbd>{s.display}</kbd> {s.label}
+                  </span>
+                ))}
+                {SHORTCUT_DEFS.every((s) => !shortcuts[s.id]) && <span>Raccourcis clavier désactivés</span>}
+                <button className="shortcut-settings-btn" onClick={() => setShortcutSettingsOpen((v) => !v)} title="Configurer les raccourcis">
+                  {"\u2699"}
+                </button>
               </div>
+              {shortcutSettingsOpen && (
+                <div className="shortcut-settings">
+                  <div className="shortcut-settings-title">Raccourcis clavier</div>
+                  {SHORTCUT_DEFS.map((s) => (
+                    <label key={s.id} className="shortcut-toggle">
+                      <input
+                        type="checkbox"
+                        checked={shortcuts[s.id]}
+                        onChange={(e) => setShortcutEnabled(s.id, e.target.checked)}
+                      />
+                      <kbd>{s.display}</kbd>
+                      <span>{s.label}</span>
+                      <span className="shortcut-context">{s.context === "home" ? "accueil" : "enregistrement"}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </>)}
 
             {/* ─── RECORDING UI (REC or LIVE) ──────── */}
