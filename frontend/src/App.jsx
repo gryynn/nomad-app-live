@@ -455,26 +455,33 @@ export default function App() {
     chunkUploader.setOnUploaded((sessionId, seq) => {
       if (recMode !== "live" || !isRecording) return;
       console.log(`[LIVE-WHISPER] Chunk ${seq} uploaded, requesting transcription...`);
-      api.transcribeChunk(sessionId, seq)
-        .then((result) => {
-          if (!result.text) return;
-          console.log(`[LIVE-WHISPER] Chunk ${seq}: "${result.text.slice(0, 60)}..."`);
-          // Insert segment in order
-          const segments = whisperSegmentsRef.current;
-          const existing = segments.findIndex((s) => s.seq === seq);
-          if (existing >= 0) {
-            segments[existing] = { seq, text: result.text };
-          } else {
-            segments.push({ seq, text: result.text });
-            segments.sort((a, b) => a.seq - b.seq);
-          }
-          // Build concatenated transcript
-          const full = segments.map((s) => s.text).join(" ");
-          setWhisperText(full);
-        })
-        .catch((err) => {
-          console.warn(`[LIVE-WHISPER] Chunk ${seq} transcription failed:`, err.message);
-        });
+
+      // Retry up to 2 times with delay (storage propagation + Groq rate limits)
+      const tryTranscribe = (attempt) => {
+        api.transcribeChunk(sessionId, seq)
+          .then((result) => {
+            if (!result.text) return;
+            console.log(`[LIVE-WHISPER] Chunk ${seq}: "${result.text.slice(0, 60)}..."`);
+            const segments = whisperSegmentsRef.current;
+            const existing = segments.findIndex((s) => s.seq === seq);
+            if (existing >= 0) {
+              segments[existing] = { seq, text: result.text };
+            } else {
+              segments.push({ seq, text: result.text });
+              segments.sort((a, b) => a.seq - b.seq);
+            }
+            const full = segments.map((s) => s.text).join(" ");
+            setWhisperText(full);
+          })
+          .catch((err) => {
+            console.warn(`[LIVE-WHISPER] Chunk ${seq} attempt ${attempt + 1} failed:`, err.message);
+            if (attempt < 2) {
+              setTimeout(() => tryTranscribe(attempt + 1), 3000 * (attempt + 1));
+            }
+          });
+      };
+      // Small delay after upload to let storage propagate
+      setTimeout(() => tryTranscribe(0), 1500);
     });
     return () => chunkUploader.setOnUploaded(null);
   }, [recMode, isRecording]);
@@ -743,20 +750,26 @@ export default function App() {
     setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + hashtag.length; ta.focus(); }, 0);
   }
 
-  function cancelRecording() {
-    if (mediaRecorderRef.current) {
-      cancelledRef.current = true;
-      clearInterval(timerRef.current);
-      clearInterval(flushTimerRef.current);
-      if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
-      if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; analyserRef.current = null; }
-      speech.stop();
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      setIsPaused(false);
-      setStealthMode(false);
-      setSuccess("Enregistrement annulé");
+  function cancelRecording(skipConfirm = false) {
+    if (!mediaRecorderRef.current) return;
+    // Confirm if recording is > 10s to prevent accidental data loss
+    if (!skipConfirm && recTime > 10_000) {
+      const duration = formatTimer(recTime);
+      if (!window.confirm(`Annuler l'enregistrement en cours (${duration}) ?\n\nLes données audio seront perdues.`)) {
+        return;
+      }
     }
+    cancelledRef.current = true;
+    clearInterval(timerRef.current);
+    clearInterval(flushTimerRef.current);
+    if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
+    if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; analyserRef.current = null; }
+    speech.stop();
+    mediaRecorderRef.current.stop();
+    setIsRecording(false);
+    setIsPaused(false);
+    setStealthMode(false);
+    setSuccess("Enregistrement annulé");
   }
 
   // ─── Auto-create tags that don't exist yet ─────────

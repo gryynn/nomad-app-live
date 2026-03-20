@@ -194,19 +194,31 @@ async def transcribe_chunk(session_id: str, seq: int):
     chunk_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio-chunks/{chunk_path}"
 
     try:
-        # Download chunk from Supabase Storage
+        # Download chunk from Supabase Storage (retry with delay for propagation)
         storage_headers = {
             "apikey": SUPABASE_SERVICE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
         }
+        audio_data = None
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.get(chunk_url, headers=storage_headers)
-            if resp.status_code != 200:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Chunk not found: {chunk_path}"
-                )
-            audio_data = resp.content
+            for attempt in range(3):
+                resp = await client.get(chunk_url, headers=storage_headers)
+                if resp.status_code == 200 and len(resp.content) > 100:
+                    audio_data = resp.content
+                    break
+                # Chunk not yet propagated in storage — wait and retry
+                import asyncio
+                wait = 2 * (attempt + 1)
+                print(f"[CHUNK-TR] {session_id} seq={seq}: storage returned {resp.status_code} ({len(resp.content)}B), retry in {wait}s (attempt {attempt+1}/3)")
+                await asyncio.sleep(wait)
+
+        if not audio_data or len(audio_data) < 100:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Chunk not found or empty after retries: {chunk_path}"
+            )
+
+        print(f"[CHUNK-TR] {session_id} seq={seq}: downloaded {len(audio_data)}B, sending to Groq...")
 
         # Transcribe via Groq (30s chunk = ~500KB, well under 25MB limit)
         result = await groq_service.transcribe_chunk(audio_data)
@@ -223,6 +235,10 @@ async def transcribe_chunk(session_id: str, seq: int):
 
     except HTTPException:
         raise
+    except httpx.HTTPStatusError as e:
+        body = e.response.text[:500] if e.response else "no body"
+        print(f"[CHUNK-TR] Groq HTTP error {session_id} seq={seq}: {e.response.status_code} — {body}")
+        raise HTTPException(status_code=502, detail=f"Groq API error {e.response.status_code}: {body}")
     except Exception as e:
         print(f"[CHUNK-TR] Failed {session_id} seq={seq}: {e}")
         raise HTTPException(status_code=500, detail=f"Chunk transcription failed: {str(e)}")
