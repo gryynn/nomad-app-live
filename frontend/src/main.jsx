@@ -1,14 +1,17 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { AuthProvider } from "./hooks/useAuth.jsx";
+import { ThemeProvider } from "./hooks/useTheme.jsx";
 import App from "./App.jsx";
 import "./styles/mvp.css";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <AuthProvider>
-      <App />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </ThemeProvider>
   </StrictMode>
 );
 
