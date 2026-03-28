@@ -237,8 +237,12 @@ async def transcribe_chunk(session_id: str, seq: int):
         raise
     except httpx.HTTPStatusError as e:
         body = e.response.text[:500] if e.response else "no body"
-        print(f"[CHUNK-TR] Groq HTTP error {session_id} seq={seq}: {e.response.status_code} — {body}")
-        raise HTTPException(status_code=502, detail=f"Groq API error {e.response.status_code}: {body}")
+        status = e.response.status_code if e.response else 500
+        print(f"[CHUNK-TR] Groq HTTP error {session_id} seq={seq}: {status} — {body}")
+        # 400 = chunk too short/silent/corrupt — return empty instead of error
+        if status == 400:
+            return {"seq": seq, "text": "", "duration": 0, "segments": [], "skipped": True}
+        raise HTTPException(status_code=502, detail=f"Groq API error {status}: {body}")
     except Exception as e:
         print(f"[CHUNK-TR] Failed {session_id} seq={seq}: {e}")
         raise HTTPException(status_code=500, detail=f"Chunk transcription failed: {str(e)}")

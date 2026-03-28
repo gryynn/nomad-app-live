@@ -42,6 +42,14 @@ class GroqService:
         """Transcribe raw audio bytes without storing to DB. For chunk-by-chunk LIVE mode."""
         if not self.api_key:
             raise ValueError("GROQ_API_KEY is not configured")
+        # Validate WebM header (EBML magic bytes 1A 45 DF A3)
+        if len(audio_data) < 4 or audio_data[:4] != b'\x1a\x45\xdf\xa3':
+            print(f"[GROQ] Chunk rejected: invalid WebM header ({len(audio_data)}B)")
+            return {"text": "", "duration": 0, "segments": []}
+        # Skip chunks too small to contain real audio (< 2KB typically silence)
+        if len(audio_data) < 2048:
+            print(f"[GROQ] Chunk skipped: too small ({len(audio_data)}B)")
+            return {"text": "", "duration": 0, "segments": []}
         return await self._call_groq_api(audio_data, engine, "audio.webm")
 
     async def transcribe(self, session_id: str, audio_url: str, engine: str = "groq-turbo") -> dict:

@@ -1,7 +1,11 @@
-const CACHE_NAME = "nomad-v1";
+// Version injected at build time by sw-version-plugin in vite.config.js
+// DO NOT hardcode — this line is replaced during build
+const APP_VERSION = "__SW_VERSION__";
+const CACHE_NAME = `nomad-v${APP_VERSION}`;
 const STATIC_ASSETS = ["/", "/index.html", "/manifest.json", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {
+  console.log(`[SW] Installing ${CACHE_NAME}`);
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
   );
@@ -9,16 +13,28 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
+  console.log(`[SW] Activating ${CACHE_NAME}`);
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(
+        keys.filter((k) => k !== CACHE_NAME).map((k) => {
+          console.log(`[SW] Deleting old cache: ${k}`);
+          return caches.delete(k);
+        })
+      )
     )
   );
   self.clients.claim();
+
+  // Notify all clients that a new version is active
+  self.clients.matchAll().then((clients) => {
+    clients.forEach((client) => {
+      client.postMessage({ type: "SW_UPDATED", version: APP_VERSION });
+    });
+  });
 });
 
 self.addEventListener("fetch", (event) => {
-  // Only cache GET requests
   if (event.request.method !== "GET") return;
 
   const url = new URL(event.request.url);
@@ -31,7 +47,6 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          // Cache successful responses
           if (response.status === 200) {
             const clone = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
@@ -39,18 +54,32 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => {
-          // Fallback to cache if network fails
           return caches.match(event.request);
         })
     );
     return;
   }
 
-  // Cache-first strategy for static assets
+  // Network-first for index.html (critical for SPA updates)
+  if (url.pathname === "/" || url.pathname === "/index.html") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Cache-first strategy for hashed static assets (Vite adds content hash)
   event.respondWith(
     caches.match(event.request).then((cached) => {
       return cached || fetch(event.request).then((response) => {
-        // Cache successful responses
         if (response.status === 200) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
@@ -69,9 +98,6 @@ self.addEventListener("sync", (event) => {
 
 async function syncPendingSessions() {
   try {
-    // This will be called when connectivity is restored
-    // The actual sync logic will be implemented by the client
-    // Send a message to all clients to trigger the sync
     const clients = await self.clients.matchAll();
     clients.forEach((client) => {
       client.postMessage({
@@ -80,7 +106,6 @@ async function syncPendingSessions() {
       });
     });
   } catch (error) {
-    // Sync will be retried automatically
     throw error;
   }
 }

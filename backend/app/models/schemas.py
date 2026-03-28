@@ -16,6 +16,7 @@ class SessionCreate(BaseModel):
     engine_used: Optional[str] = None
     offline_created: bool = False
     transcript: Optional[str] = None
+    recorded_at: Optional[str] = None
 
 
 class SessionUpdate(BaseModel):

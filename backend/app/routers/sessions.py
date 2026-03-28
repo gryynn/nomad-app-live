@@ -54,6 +54,8 @@ async def create_session(session: SessionCreate):
             session_data["engine_used"] = session.engine_used
         if session.offline_created:
             session_data["offline_created"] = True
+        if session.recorded_at is not None:
+            session_data["recorded_at"] = session.recorded_at
         if session.transcript is not None:
             session_data["transcript"] = session.transcript
             session_data["transcript_words"] = len(session.transcript.split())

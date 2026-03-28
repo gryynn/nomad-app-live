@@ -27,8 +27,9 @@ NOMAD is a PWA for universal audio capture and transcription. It replaces a 6-st
 ## Database
 
 - Schema: `app_nomad` (Supabase REST headers: `Accept-Profile: app_nomad`)
-- Tables: `sessions`, `tags`, `session_tags`, `notes`
-- Existing data: `sessions` has 247+ legacy rows — do NOT drop or alter destructively
+- Tables: `sessions`, `tags`, `session_tags`, `notes` (tables `device_prefs`, `tag_notes`, `engine_usage` dropped in v0.14.0 — were empty/unused)
+- Existing data: `sessions` has 648 rows (507 active, 141 soft-deleted) — do NOT drop or alter destructively
+- Column `recorded_at` has `DEFAULT now()` — auto-set on insert
 - New tables are added via Supabase migrations
 - Tags are hierarchical (parent_id self-reference)
 - Tags have optional `mirai_item_id` for future Mirai integration
@@ -160,11 +161,20 @@ docker compose --env-file backend/.env up -d
 
 ## Important Rules
 
-- Never drop or truncate `sessions` — it has 247+ legacy recordings
+- Never drop or truncate `sessions` — it has 648 rows (507 active)
 - New columns on existing tables use `ADD COLUMN IF NOT EXISTS`
 - Audio files go to Supabase Storage, not local filesystem
 - Frontend must work offline (Service Worker + IndexedDB)
 - Always test with both OLED and Light themes
+
+## Service Worker (v0.14.0+)
+
+- `frontend/public/sw.js` uses version-based cache: `nomad-v{version}`
+- Version injected at build time by `swVersionPlugin` in `vite.config.js` (replaces `__SW_VERSION__`)
+- Explicit registration in `main.jsx` with 5-min update check interval
+- `nginx.conf` excludes `sw.js` from immutable caching (`no-cache, must-revalidate`)
+- Network-first for `index.html` and `/api/*`, cache-first for hashed static assets
+- Sends `SW_UPDATED` message to clients when new version activates
 
 ## Git & Deploy Rules
 
