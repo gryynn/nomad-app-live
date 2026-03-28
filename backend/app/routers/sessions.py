@@ -1,8 +1,9 @@
 import httpx
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional, List
 from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+from app.auth import get_current_user
 from app.models.schemas import (
     SessionResponse,
     SessionCreate,
@@ -28,12 +29,13 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
 @router.post("", response_model=SessionResponse, status_code=201)
-async def create_session(session: SessionCreate):
+async def create_session(session: SessionCreate, user=Depends(get_current_user)):
     """Create a new recording session"""
     try:
         session_data = {
             "input_mode": session.input_mode,
             "status": "pending",
+            "user_id": user["id"],
         }
 
         if session.title is not None:
@@ -92,6 +94,7 @@ async def list_sessions(
     created_before: Optional[str] = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    user=Depends(get_current_user),
 ):
     """List sessions with optional filters"""
     try:
@@ -100,6 +103,7 @@ async def list_sessions(
             "order": "created_at.desc",
             "limit": limit,
             "offset": offset,
+            "user_id": f"eq.{user['id']}",
         }
 
         if status:
@@ -175,7 +179,7 @@ async def list_sessions(
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
-async def get_session(session_id: str):
+async def get_session(session_id: str, user=Depends(get_current_user)):
     """Get session detail with embedded tags and notes"""
     try:
         async with httpx.AsyncClient() as client:
@@ -184,6 +188,7 @@ async def get_session(session_id: str):
                 headers=HEADERS,
                 params={
                     "id": f"eq.{session_id}",
+                    "user_id": f"eq.{user['id']}",
                     "select": "*",
                 },
             )
@@ -247,7 +252,7 @@ async def get_session(session_id: str):
 
 
 @router.put("/{session_id}", response_model=SessionResponse)
-async def update_session(session_id: str, session_update: SessionUpdate):
+async def update_session(session_id: str, session_update: SessionUpdate, user=Depends(get_current_user)):
     """Update session fields"""
     try:
         update_data = session_update.model_dump(exclude_none=True)
@@ -259,7 +264,7 @@ async def update_session(session_id: str, session_update: SessionUpdate):
             response = await client.patch(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
-                params={"id": f"eq.{session_id}"},
+                params={"id": f"eq.{session_id}", "user_id": f"eq.{user['id']}"},
                 json=update_data,
             )
             response.raise_for_status()
@@ -282,10 +287,18 @@ async def update_session(session_id: str, session_update: SessionUpdate):
 
 
 @router.delete("/{session_id}", status_code=204)
-async def delete_session(session_id: str):
+async def delete_session(session_id: str, user=Depends(get_current_user)):
     """Delete a session (hard delete for MVP)"""
     try:
         async with httpx.AsyncClient() as client:
+            # Verify ownership before deleting
+            check = await client.get(
+                f"{BASE_URL}/sessions",
+                headers=HEADERS,
+                params={"id": f"eq.{session_id}", "user_id": f"eq.{user['id']}", "select": "id"},
+            )
+            if not check.json():
+                raise HTTPException(status_code=404, detail="Session not found")
             # Delete session_tags first (junction table)
             await client.delete(
                 f"{BASE_URL}/session_tags",
@@ -324,16 +337,17 @@ async def delete_session(session_id: str):
 
 
 @router.post("/{session_id}/marks", status_code=201)
-async def add_mark_to_session(session_id: str, mark: MarkCreate):
+async def add_mark_to_session(session_id: str, mark: MarkCreate, user=Depends(get_current_user)):
     """Add a timestamp mark to a session (appends to JSONB marks array)"""
     try:
         async with httpx.AsyncClient() as client:
-            # Fetch current session to get existing marks
+            # Fetch current session to get existing marks (with ownership check)
             response = await client.get(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={
                     "id": f"eq.{session_id}",
+                    "user_id": f"eq.{user['id']}",
                     "select": "id,marks",
                 },
             )
@@ -355,7 +369,7 @@ async def add_mark_to_session(session_id: str, mark: MarkCreate):
             update_response = await client.patch(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
-                params={"id": f"eq.{session_id}"},
+                params={"id": f"eq.{session_id}", "user_id": f"eq.{user['id']}"},
                 json={"marks": current_marks},
             )
             update_response.raise_for_status()
@@ -372,14 +386,14 @@ async def add_mark_to_session(session_id: str, mark: MarkCreate):
 
 
 @router.post("/{session_id}/notes", response_model=NoteResponse, status_code=201)
-async def add_note_to_session(session_id: str, note: NoteCreate):
+async def add_note_to_session(session_id: str, note: NoteCreate, user=Depends(get_current_user)):
     """Add a text note to a session"""
     try:
         async with httpx.AsyncClient() as client:
             check_response = await client.get(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
-                params={"id": f"eq.{session_id}", "select": "id"},
+                params={"id": f"eq.{session_id}", "user_id": f"eq.{user['id']}", "select": "id"},
             )
             check_response.raise_for_status()
             sessions = check_response.json()
@@ -389,7 +403,7 @@ async def add_note_to_session(session_id: str, note: NoteCreate):
             response = await client.post(
                 f"{BASE_URL}/notes",
                 headers=HEADERS,
-                json={"session_id": session_id, "content": note.content},
+                json={"session_id": session_id, "user_id": user["id"], "content": note.content},
             )
             response.raise_for_status()
             created_note = response.json()
@@ -403,11 +417,11 @@ async def add_note_to_session(session_id: str, note: NoteCreate):
 
 
 @router.put("/{session_id}/notes", response_model=NoteResponse)
-async def replace_notes(session_id: str, note: NoteCreate):
+async def replace_notes(session_id: str, note: NoteCreate, user=Depends(get_current_user)):
     """Replace all notes for a session with a single note"""
     try:
         async with httpx.AsyncClient() as client:
-            # Delete existing notes
+            # Delete existing notes (scoped to session owned by user)
             await client.delete(
                 f"{BASE_URL}/notes",
                 headers=HEADERS,
@@ -417,7 +431,7 @@ async def replace_notes(session_id: str, note: NoteCreate):
             response = await client.post(
                 f"{BASE_URL}/notes",
                 headers=HEADERS,
-                json={"session_id": session_id, "content": note.content},
+                json={"session_id": session_id, "user_id": user["id"], "content": note.content},
             )
             response.raise_for_status()
             created_note = response.json()

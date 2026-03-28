@@ -69,7 +69,7 @@ class NoteResponse(BaseModel):
     id: str
     session_id: str
     content: str
-    user_id: str = "martun"
+    user_id: str
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -84,7 +84,7 @@ class TagResponse(BaseModel):
     hue: Optional[str] = "#6B7280"
     parent_id: Optional[str] = None
     mirai_item_id: Optional[str] = None
-    user_id: str = "martun"
+    user_id: str
     created_at: datetime
     updated_at: Optional[datetime] = None
     session_count: Optional[int] = None
@@ -113,7 +113,7 @@ class SessionResponse(BaseModel):
     summary: Optional[str] = None
     offline_created: Optional[bool] = False
     synced_at: Optional[datetime] = None
-    user_id: str = "martun"
+    user_id: str
     error_message: Optional[str] = None
     deleted_at: Optional[datetime] = None
     created_at: datetime

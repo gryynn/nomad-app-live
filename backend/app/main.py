@@ -1,6 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import sessions, tags, engines, upload, transcribe
+from app.auth import get_current_user
 
 app = FastAPI(
     title="NOMAD API",
@@ -37,3 +38,8 @@ app.include_router(transcribe.router, prefix="/api")
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "nomad-api"}
+
+
+@app.get("/api/auth/me")
+async def auth_me(user=Depends(get_current_user)):
+    return {"user_id": user["id"], "email": user["email"]}

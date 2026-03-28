@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 import httpx
 from app.models.schemas import TranscribeRequest
+from app.auth import get_current_user
 from app.services.queue_manager import QueueManager
 from app.services.groq_service import GroqService, GroqFileTooLargeError
 from app.services.deepgram_service import DeepgramService
@@ -134,7 +135,8 @@ async def process_transcription(job_id: str, session_id: str, engine: str, audio
 async def transcribe_session(
     session_id: str,
     request: TranscribeRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
 ):
     if not session_id:
         raise HTTPException(status_code=400, detail="Invalid session_id")
@@ -146,12 +148,13 @@ async def transcribe_session(
             detail=f"Invalid engine. Must be one of: {', '.join(valid_engines)}"
         )
 
-    # Check if session exists via httpx REST API
+    # Check if session exists and belongs to user
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
-                f"{BASE_URL}/sessions?id=eq.{session_id}&select=id,audio_url",
+                f"{BASE_URL}/sessions",
                 headers=HEADERS,
+                params={"id": f"eq.{session_id}", "user_id": f"eq.{user['id']}", "select": "id,audio_url"},
             )
             if resp.status_code != 200:
                 raise HTTPException(status_code=500, detail="Failed to query session")
@@ -188,7 +191,7 @@ async def transcribe_session(
 
 
 @router.post("/chunk/{session_id}/{seq}")
-async def transcribe_chunk(session_id: str, seq: int):
+async def transcribe_chunk(session_id: str, seq: int, user=Depends(get_current_user)):
     """Transcribe a single chunk from nomad-audio-chunks. Returns transcript text immediately."""
     chunk_path = f"{session_id}/chunk_{str(seq).zfill(4)}.webm"
     chunk_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio-chunks/{chunk_path}"
@@ -249,6 +252,8 @@ async def transcribe_chunk(session_id: str, seq: int):
 
 
 @router.get("/queue")
-async def get_queue():
+async def get_queue(user=Depends(get_current_user)):
     jobs = queue_manager.get_jobs()
-    return {"jobs": jobs, "total": len(jobs)}
+    # Filter to only show current user's jobs
+    user_jobs = [j for j in jobs if j.get("user_id") == user["id"]] if jobs else []
+    return {"jobs": user_jobs, "total": len(user_jobs)}

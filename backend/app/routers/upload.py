@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel
 import httpx
 import uuid
@@ -7,6 +7,7 @@ import subprocess
 import os
 from pathlib import Path
 from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -56,7 +57,7 @@ class UploadCompleteRequest(BaseModel):
 
 
 @router.post("/init")
-async def upload_init(req: UploadInitRequest):
+async def upload_init(req: UploadInitRequest, user=Depends(get_current_user)):
     """Get a signed upload URL for direct client-to-Supabase upload.
 
     Returns a signed URL that the client can PUT the file to directly,
@@ -70,7 +71,7 @@ async def upload_init(req: UploadInitRequest):
         )
 
     session_id = str(uuid.uuid4())
-    user_id = "martun"
+    user_id = user["id"]
     storage_path = f"{user_id}/{session_id}{file_ext}"
     content_type = MIME_MAP.get(file_ext, "audio/mpeg")
 
@@ -108,7 +109,7 @@ async def upload_init(req: UploadInitRequest):
 
 
 @router.post("/complete")
-async def upload_complete(req: UploadCompleteRequest):
+async def upload_complete(req: UploadCompleteRequest, user=Depends(get_current_user)):
     """Create session record after client has uploaded directly to storage."""
     audio_url = f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{req.storage_path}"
 
@@ -116,7 +117,7 @@ async def upload_complete(req: UploadCompleteRequest):
         async with httpx.AsyncClient() as client:
             session_data = {
                 "id": req.session_id,
-                "user_id": "martun",
+                "user_id": user["id"],
                 "duration_seconds": 0,
                 "input_mode": "import",
                 "status": "uploaded",
@@ -141,7 +142,7 @@ async def upload_complete(req: UploadCompleteRequest):
 
 # Keep legacy endpoint for backward compatibility
 @router.post("")
-async def upload_audio_legacy(file: UploadFile = File(...)):
+async def upload_audio_legacy(file: UploadFile = File(...), user=Depends(get_current_user)):
     """Legacy: Upload via backend (kept for backward compat, prefer init+complete flow)."""
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in ALLOWED_EXTENSIONS:
@@ -151,7 +152,7 @@ async def upload_audio_legacy(file: UploadFile = File(...)):
         )
 
     session_id = str(uuid.uuid4())
-    user_id = "martun"
+    user_id = user["id"]
     storage_path = f"{user_id}/{session_id}{file_ext}"
 
     try:
@@ -206,9 +207,8 @@ async def upload_audio_legacy(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
-async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: str):
+async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: str, user_id: str):
     """Background task: download chunks, ffmpeg remux, upload assembled file, update session."""
-    user_id = "martun"
     storage_headers = {
         "apikey": SUPABASE_SERVICE_KEY,
         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
@@ -301,13 +301,13 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
 
 
 @router.post("/assemble")
-async def assemble_chunks(req: AssembleRequest, background_tasks: BackgroundTasks):
+async def assemble_chunks(req: AssembleRequest, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
     """Create session immediately, then assemble chunks in background.
 
     Returns instantly with session_id. The background task downloads chunks,
     remuxes via ffmpeg, uploads the assembled file, and updates the session.
     """
-    user_id = "martun"
+    user_id = user["id"]
 
     try:
         # Create session record NOW (no audio_url yet, status="assembling")
@@ -355,6 +355,7 @@ async def assemble_chunks(req: AssembleRequest, background_tasks: BackgroundTask
             req.session_id,
             req.chunk_count,
             req.mime_type,
+            user_id,
         )
 
         print(f"[ASSEMBLE] Session {req.session_id} created, assembly queued ({req.chunk_count} chunks)")

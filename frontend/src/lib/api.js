@@ -2,13 +2,32 @@ import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabase.js";
 
 const BASE = import.meta.env.VITE_API_URL || "";
 
+async function getAuthHeaders() {
+  if (!supabase) return {};
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 async function request(path, options = {}) {
   const url = `${BASE}${path}`;
   console.log(`[API] ${options.method || "GET"} ${url}`);
+  const authHeaders = await getAuthHeaders();
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers: { "Content-Type": "application/json", ...authHeaders, ...options.headers },
     ...options,
   });
+  // Handle 401 — session expired
+  if (res.status === 401) {
+    console.warn("[API] 401 — session expired, signing out");
+    if (supabase) await supabase.auth.signOut();
+    window.location.reload();
+    throw new Error("Session expirée");
+  }
   const contentType = res.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
     console.error(`[API] Non-JSON response (${res.status}) for ${path}: ${contentType}`);
@@ -42,7 +61,13 @@ export const updateSession = (id, data) =>
 export const deleteSession = async (id) => {
   const url = `${BASE}/api/sessions/${id}`;
   console.log(`[API] DELETE ${url}`);
-  const res = await fetch(url, { method: "DELETE" });
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(url, { method: "DELETE", headers: authHeaders });
+  if (res.status === 401) {
+    if (supabase) await supabase.auth.signOut();
+    window.location.reload();
+    throw new Error("Session expirée");
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Delete failed");
@@ -142,7 +167,16 @@ export const uploadAudio = async (file, onProgress) => {
   const ext = getFileExt(file.name);
   const contentType = MIME_MAP[ext] || "audio/mpeg";
   const sessionId = crypto.randomUUID();
-  const storagePath = `martun/${sessionId}.${ext}`;
+
+  // Get user ID for storage path scoping
+  let userId = "anonymous";
+  if (supabase) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      userId = data.session?.user?.id || "anonymous";
+    } catch { /* use anonymous */ }
+  }
+  const storagePath = `${userId}/${sessionId}.${ext}`;
   console.log(`[UPLOAD] ${file.name} (${sizeMB} MB) → ${storagePath}`);
 
   // ── Strategy 1: Direct XHR to Supabase (with progress) ──
@@ -188,11 +222,16 @@ export const uploadAudio = async (file, onProgress) => {
 
   // ── Strategy 3: Backend proxy (with progress) ──
   console.log(`[UPLOAD] Falling back to backend proxy...`);
+  const proxyAuthHeaders = await getAuthHeaders();
   return new Promise((resolve, reject) => {
     const formData = new FormData();
     formData.append("file", file);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/api/upload`);
+    // Inject auth header for backend proxy
+    if (proxyAuthHeaders.Authorization) {
+      xhr.setRequestHeader("Authorization", proxyAuthHeaders.Authorization);
+    }
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {

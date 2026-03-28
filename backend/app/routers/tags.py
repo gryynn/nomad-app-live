@@ -1,7 +1,8 @@
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional, List
 from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+from app.auth import get_current_user
 from app.models.schemas import (
     TagResponse,
     TagCreate,
@@ -30,6 +31,7 @@ async def list_tags(
     parent_id: Optional[str] = None,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    user=Depends(get_current_user),
 ):
     """List all tags with optional parent filter"""
     try:
@@ -39,6 +41,7 @@ async def list_tags(
             "order": "name.asc",
             "limit": limit,
             "offset": offset,
+            "user_id": f"eq.{user['id']}",
         }
 
         # Filter by parent_id if provided
@@ -90,7 +93,7 @@ async def list_tags(
 
 
 @router.post("", response_model=TagResponse, status_code=201)
-async def create_tag(tag: TagCreate):
+async def create_tag(tag: TagCreate, user=Depends(get_current_user)):
     """Create a new tag"""
     try:
         # Prepare tag data for insertion
@@ -98,6 +101,7 @@ async def create_tag(tag: TagCreate):
             "name": tag.name,
             "emoji": tag.emoji,
             "hue": tag.hue,
+            "user_id": user["id"],
         }
 
         # Add optional parent_id if provided
@@ -126,7 +130,7 @@ async def create_tag(tag: TagCreate):
 
 
 @router.get("/{tag_id}", response_model=TagResponse)
-async def get_tag(tag_id: str):
+async def get_tag(tag_id: str, user=Depends(get_current_user)):
     """Get a single tag by ID"""
     try:
         async with httpx.AsyncClient() as client:
@@ -135,6 +139,7 @@ async def get_tag(tag_id: str):
                 headers=HEADERS,
                 params={
                     "id": f"eq.{tag_id}",
+                    "user_id": f"eq.{user['id']}",
                     "select": "*",
                 },
             )
@@ -181,7 +186,7 @@ async def get_tag(tag_id: str):
 
 
 @router.put("/{tag_id}", response_model=TagResponse)
-async def update_tag(tag_id: str, tag_update: TagUpdate):
+async def update_tag(tag_id: str, tag_update: TagUpdate, user=Depends(get_current_user)):
     """Update a tag"""
     try:
         # Build update data from provided fields
@@ -203,7 +208,7 @@ async def update_tag(tag_id: str, tag_update: TagUpdate):
             response = await client.patch(
                 f"{BASE_URL}/tags",
                 headers=HEADERS,
-                params={"id": f"eq.{tag_id}"},
+                params={"id": f"eq.{tag_id}", "user_id": f"eq.{user['id']}"},
                 json=update_data,
             )
             response.raise_for_status()
@@ -226,15 +231,15 @@ async def update_tag(tag_id: str, tag_update: TagUpdate):
 
 
 @router.delete("/{tag_id}", status_code=204)
-async def delete_tag(tag_id: str):
+async def delete_tag(tag_id: str, user=Depends(get_current_user)):
     """Delete a tag"""
     try:
         async with httpx.AsyncClient() as client:
-            # Check if tag exists first
+            # Check if tag exists and belongs to user
             check_response = await client.get(
                 f"{BASE_URL}/tags",
                 headers=HEADERS,
-                params={"id": f"eq.{tag_id}", "select": "id"},
+                params={"id": f"eq.{tag_id}", "user_id": f"eq.{user['id']}", "select": "id"},
             )
             check_response.raise_for_status()
             tags = check_response.json()
@@ -246,7 +251,7 @@ async def delete_tag(tag_id: str):
             response = await client.delete(
                 f"{BASE_URL}/tags",
                 headers=HEADERS,
-                params={"id": f"eq.{tag_id}"},
+                params={"id": f"eq.{tag_id}", "user_id": f"eq.{user['id']}"},
             )
             response.raise_for_status()
 
@@ -268,16 +273,17 @@ sessions_tags_router = APIRouter(prefix="/sessions", tags=["tags"])
 
 
 @sessions_tags_router.post("/{session_id}/tags", response_model=SessionResponse)
-async def associate_tags_with_session(session_id: str, tag_assoc: TagAssociation):
+async def associate_tags_with_session(session_id: str, tag_assoc: TagAssociation, user=Depends(get_current_user)):
     """Associate multiple tags with a session"""
     try:
         async with httpx.AsyncClient() as client:
-            # First, verify the session exists
+            # First, verify the session exists and belongs to user
             session_response = await client.get(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
                 params={
                     "id": f"eq.{session_id}",
+                    "user_id": f"eq.{user['id']}",
                     "select": "id",
                 },
             )

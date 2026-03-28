@@ -42,21 +42,9 @@ self.addEventListener("fetch", (event) => {
   // Skip WebSocket requests
   if (url.pathname.startsWith("/ws")) return;
 
-  // Network-first strategy for API requests
+  // API requests: network-only (no caching to avoid cross-user data leaks)
   if (url.pathname.startsWith("/api")) {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (response.status === 200) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => {
-          return caches.match(event.request);
-        })
-    );
+    event.respondWith(fetch(event.request));
     return;
   }
 

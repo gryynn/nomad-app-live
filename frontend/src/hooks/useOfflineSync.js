@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { openDB } from "idb";
 
-const DB_NAME = "nomad-offline";
+const DB_BASE = "nomad-offline";
 
-async function getDb() {
-  return openDB(DB_NAME, 3, {
+async function getDb(userId) {
+  const dbName = userId ? `${DB_BASE}-${userId}` : DB_BASE;
+  return openDB(dbName, 3, {
     upgrade(db, oldVersion) {
       // v1-2 stores
       if (!db.objectStoreNames.contains("pending-sessions")) {
@@ -27,51 +28,53 @@ async function getDb() {
   });
 }
 
-export function useOfflineSync() {
+export function useOfflineSync(userId) {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingCount, setPendingCount] = useState(0);
   const [syncProgress, setSyncProgress] = useState({ total: 0, synced: 0 });
   const uploadFnRef = useRef(null);
   const syncingRef = useRef(false);
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
 
   // Update pending count
   const updatePendingCount = useCallback(async () => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     const sessions = await db.getAll("pending-sessions");
     const recordings = await db.getAll("pending-recordings");
     setPendingCount(sessions.length + recordings.length);
   }, []);
 
   const saveSessionOffline = useCallback(async (session) => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     await db.put("pending-sessions", session);
     await updatePendingCount();
   }, [updatePendingCount]);
 
   const saveRecordingOffline = useCallback(async (recording) => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     await db.put("pending-recordings", recording);
     await updatePendingCount();
   }, [updatePendingCount]);
 
   const getPendingSessions = useCallback(async () => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     return db.getAll("pending-sessions");
   }, []);
 
   const getPendingRecordings = useCallback(async () => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     return db.getAll("pending-recordings");
   }, []);
 
   const removePendingSession = useCallback(async (id) => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     await db.delete("pending-sessions", id);
     await updatePendingCount();
   }, [updatePendingCount]);
 
   const removePendingRecording = useCallback(async (id) => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     await db.delete("pending-recordings", id);
     await updatePendingCount();
   }, [updatePendingCount]);
@@ -152,7 +155,7 @@ export function useOfflineSync() {
   /** Create metadata entry for a new active recording.
    *  Cleans up any previous orphaned recordings first. */
   const startActiveRecording = useCallback(async (id, mode, mimeType) => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     // Clean up any previous orphaned recordings
     const existing = await db.getAll("active-recording");
     for (const old of existing) {
@@ -183,7 +186,7 @@ export function useOfflineSync() {
 
   /** Write a chunk snapshot + update metadata in a single transaction */
   const flushChunkSnapshot = useCallback(async (recordingId, seq, blob) => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     const tx = db.transaction(["recording-chunks", "active-recording"], "readwrite");
     const chunkStore = tx.objectStore("recording-chunks");
     const metaStore = tx.objectStore("active-recording");
@@ -208,7 +211,7 @@ export function useOfflineSync() {
 
   /** Update active recording metadata (notes, transcript, etc.) */
   const updateActiveRecordingMeta = useCallback(async (recordingId, updates) => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     const meta = await db.get("active-recording", recordingId);
     if (meta) {
       Object.assign(meta, updates);
@@ -218,7 +221,7 @@ export function useOfflineSync() {
 
   /** Read all chunks ordered by seq, return assembled Blob */
   const assembleRecording = useCallback(async (recordingId, mimeType) => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     const allChunks = await db.getAll("recording-chunks");
     const chunks = allChunks
       .filter((c) => c.recordingId === recordingId)
@@ -229,7 +232,7 @@ export function useOfflineSync() {
 
   /** Clear chunks + active-recording entry for a recording */
   const clearRecordingChunks = useCallback(async (recordingId) => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     const tx = db.transaction(["recording-chunks", "active-recording"], "readwrite");
     const chunkStore = tx.objectStore("recording-chunks");
     const metaStore = tx.objectStore("active-recording");
@@ -249,7 +252,7 @@ export function useOfflineSync() {
 
   /** Detect orphaned recordings (crash recovery), most recent first */
   const getOrphanedRecordings = useCallback(async () => {
-    const db = await getDb();
+    const db = await getDb(userIdRef.current);
     const all = await db.getAll("active-recording");
     return all.sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
   }, []);

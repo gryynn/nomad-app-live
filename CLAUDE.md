@@ -22,7 +22,7 @@ NOMAD is a PWA for universal audio capture and transcription. It replaces a 6-st
 - All API calls go through `frontend/src/lib/api.js`
 - Supabase client in `frontend/src/lib/supabase.js`
 - Version centralized in `frontend/package.json`, injected via Vite `define` (`__APP_VERSION__`)
-- Multi-user ready: every table has a `user_id` column
+- Multi-user via Supabase Auth (email/password), see Authentication section below
 
 ## Database
 
@@ -173,8 +173,21 @@ docker compose --env-file backend/.env up -d
 - Version injected at build time by `swVersionPlugin` in `vite.config.js` (replaces `__SW_VERSION__`)
 - Explicit registration in `main.jsx` with 5-min update check interval
 - `nginx.conf` excludes `sw.js` from immutable caching (`no-cache, must-revalidate`)
-- Network-first for `index.html` and `/api/*`, cache-first for hashed static assets
+- Network-first for `index.html`, network-only for `/api/*` (no caching to avoid cross-user data leaks), cache-first for hashed static assets
 - Sends `SW_UPDATED` message to clients when new version activates
+
+## Authentication (v0.15.0+)
+
+- **Provider**: Supabase Auth (email/password)
+- **No self-registration** — admin creates user accounts via Supabase Dashboard
+- **Frontend**: `useAuth.js` hook (AuthProvider context in `main.jsx`), `Login.jsx` page
+- **Backend**: `auth.py` — `get_current_user` FastAPI dependency validates Supabase JWT (HS256)
+- **Token injection**: `api.js` `request()` adds `Authorization: Bearer {token}` to all API calls
+- **JWT secret**: `SUPABASE_JWT_SECRET` env var in `backend/.env`
+- **User scoping**: all backend endpoints filter by `user_id` from JWT `sub` claim
+- **RLS**: enabled on `sessions`, `tags`, `notes`, `session_tags` — but backend uses service key (bypasses RLS)
+- **IndexedDB**: scoped per user (`nomad-offline-{userId}`)
+- **localStorage**: `nomad-theme` is global (device pref), all other `nomad-*` keys are per-device
 
 ## Git & Deploy Rules
 

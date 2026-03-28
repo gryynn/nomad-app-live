@@ -5,6 +5,8 @@ import { useOfflineSync } from "./hooks/useOfflineSync.js";
 import { useChunkUploader } from "./hooks/useChunkUploader.js";
 import { useKeyboardShortcuts, SHORTCUT_DEFS } from "./hooks/useKeyboardShortcuts.js";
 import { usePersistedState } from "./hooks/usePersistedState.js";
+import { useAuth } from "./hooks/useAuth.js";
+import Login from "./pages/Login.jsx";
 
 // ─── Helpers ──────────────────────────────────────────
 function formatDate(iso) {
@@ -69,6 +71,25 @@ function clearDraft() { localStorage.removeItem(DRAFT_KEY); }
 // APP
 // ═══════════════════════════════════════════════════════
 export default function App() {
+  // ─── Auth ─────────────────────────────────────────
+  const { user, loading: authLoading, signIn, signOut } = useAuth();
+
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ opacity: 0.4 }}>Chargement...</span>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login onLogin={signIn} />;
+  }
+
+  return <AppContent user={user} signOut={signOut} />;
+}
+
+function AppContent({ user, signOut }) {
   // ─── State ────────────────────────────────────────
   const [mode, setMode] = useState(null); // null, "paste", "import"
   const [sessions, setSessions] = useState([]);
@@ -192,7 +213,7 @@ export default function App() {
   const waveformAnimRef = useRef(null);
 
   // Offline sync
-  const offline = useOfflineSync();
+  const offline = useOfflineSync(user?.id);
   const chunkUploader = useChunkUploader();
   const [syncPanelOpen, setSyncPanelOpen] = useState(false);
   const [syncPanelItems, setSyncPanelItems] = useState([]);
@@ -1520,6 +1541,13 @@ export default function App() {
           {!offline.isOnline && <span className="offline-badge">hors-ligne</span>}
           {offline.pendingCount > 0 && <span className="pending-badge" title={`${offline.pendingCount} élément(s) en attente de sync`} onClick={async () => { const items = await offline.getAllPending(); setSyncPanelItems(items); setSyncPanelOpen(true); }}>{offline.pendingCount}</span>}
           <div className={`status-dot ${!offline.isOnline ? "offline" : loading ? "offline" : ""}`} title={!offline.isOnline ? "Hors-ligne" : loading ? "Chargement..." : "Connecté"} />
+          <button
+            onClick={signOut}
+            title={user.email}
+            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.75rem", opacity: 0.4, color: "inherit", padding: "2px 4px" }}
+          >
+            {user.email?.split("@")[0]}
+          </button>
         </div>
       </div>
 
