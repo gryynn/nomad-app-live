@@ -176,16 +176,18 @@ docker compose --env-file backend/.env up -d
 - Network-first for `index.html`, network-only for `/api/*` (no caching to avoid cross-user data leaks), cache-first for hashed static assets
 - Sends `SW_UPDATED` message to clients when new version activates
 
-## Authentication (v0.15.0+)
+## Authentication (v0.16.0+)
 
-- **Provider**: Supabase Auth (email/password)
-- **No self-registration** — admin creates user accounts via Supabase Dashboard
-- **Frontend**: `useAuth.js` hook (AuthProvider context in `main.jsx`), `Login.jsx` page
-- **Backend**: `auth.py` — `get_current_user` FastAPI dependency validates Supabase JWT (HS256)
-- **Token injection**: `api.js` `request()` adds `Authorization: Bearer {token}` to all API calls
-- **JWT secret**: `SUPABASE_JWT_SECRET` env var in `backend/.env`
+- **Provider**: PocketID (self-hosted OIDC at `id.mgdesign.cloud`)
+- **Flow**: OIDC Authorization Code → backend exchanges code → mints local JWT (HS256, 24h)
+- **No self-registration** — admin creates accounts in PocketID
+- **Frontend**: `useAuth.jsx` (AuthProvider in `main.jsx`), `Login.jsx` (single "Se connecter" button)
+- **Backend**: `auth.py` — `get_current_user` validates local JWT, `create_access_token` mints new ones
+- **OIDC endpoints**: `/api/auth/login` (redirect to PocketID), `/api/auth/callback` (exchange code), `/api/auth/me`
+- **Token storage**: `nomad_token` in localStorage, injected as `Authorization: Bearer` in `api.js`
+- **Env vars**: `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI`, `APP_JWT_SECRET`, `APP_FRONTEND_URL`
 - **User scoping**: all backend endpoints filter by `user_id` from JWT `sub` claim
-- **RLS**: enabled on `sessions`, `tags`, `notes`, `session_tags` — but backend uses service key (bypasses RLS)
+- **RLS**: enabled on `sessions`, `tags`, `notes`, `session_tags` — backend uses service key (bypasses RLS)
 - **IndexedDB**: scoped per user (`nomad-offline-{userId}`)
 - **localStorage**: `nomad-theme` is global (device pref), all other `nomad-*` keys are per-device
 

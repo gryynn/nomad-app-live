@@ -2,21 +2,24 @@ import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabase.js";
 
 const BASE = import.meta.env.VITE_API_URL || "";
 
-async function getAuthHeaders() {
-  if (!supabase) return {};
+function getAuthHeaders() {
+  const token = localStorage.getItem("nomad_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function getCurrentUserId() {
+  const token = localStorage.getItem("nomad_token");
+  if (!token) return "anonymous";
   try {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  } catch {
-    return {};
-  }
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.sub || "anonymous";
+  } catch { return "anonymous"; }
 }
 
 async function request(path, options = {}) {
   const url = `${BASE}${path}`;
   console.log(`[API] ${options.method || "GET"} ${url}`);
-  const authHeaders = await getAuthHeaders();
+  const authHeaders = getAuthHeaders();
   const res = await fetch(url, {
     headers: { "Content-Type": "application/json", ...authHeaders, ...options.headers },
     ...options,
@@ -24,7 +27,7 @@ async function request(path, options = {}) {
   // Handle 401 — session expired
   if (res.status === 401) {
     console.warn("[API] 401 — session expired, signing out");
-    if (supabase) await supabase.auth.signOut();
+    localStorage.removeItem("nomad_token");
     window.location.reload();
     throw new Error("Session expirée");
   }
@@ -61,10 +64,10 @@ export const updateSession = (id, data) =>
 export const deleteSession = async (id) => {
   const url = `${BASE}/api/sessions/${id}`;
   console.log(`[API] DELETE ${url}`);
-  const authHeaders = await getAuthHeaders();
+  const authHeaders = getAuthHeaders();
   const res = await fetch(url, { method: "DELETE", headers: authHeaders });
   if (res.status === 401) {
-    if (supabase) await supabase.auth.signOut();
+    localStorage.removeItem("nomad_token");
     window.location.reload();
     throw new Error("Session expirée");
   }
@@ -169,13 +172,7 @@ export const uploadAudio = async (file, onProgress) => {
   const sessionId = crypto.randomUUID();
 
   // Get user ID for storage path scoping
-  let userId = "anonymous";
-  if (supabase) {
-    try {
-      const { data } = await supabase.auth.getSession();
-      userId = data.session?.user?.id || "anonymous";
-    } catch { /* use anonymous */ }
-  }
+  const userId = getCurrentUserId();
   const storagePath = `${userId}/${sessionId}.${ext}`;
   console.log(`[UPLOAD] ${file.name} (${sizeMB} MB) → ${storagePath}`);
 
@@ -222,7 +219,7 @@ export const uploadAudio = async (file, onProgress) => {
 
   // ── Strategy 3: Backend proxy (with progress) ──
   console.log(`[UPLOAD] Falling back to backend proxy...`);
-  const proxyAuthHeaders = await getAuthHeaders();
+  const proxyAuthHeaders = getAuthHeaders();
   return new Promise((resolve, reject) => {
     const formData = new FormData();
     formData.append("file", file);
