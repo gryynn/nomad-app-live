@@ -5,7 +5,7 @@ import { useOfflineSync } from "./hooks/useOfflineSync.js";
 import { useChunkUploader } from "./hooks/useChunkUploader.js";
 import { useKeyboardShortcuts, SHORTCUT_DEFS } from "./hooks/useKeyboardShortcuts.js";
 import { usePersistedState } from "./hooks/usePersistedState.js";
-import { useAuth } from "./hooks/useAuth.js";
+import { useAuth } from "./hooks/useAuth.jsx";
 import Login from "./pages/Login.jsx";
 
 // ─── Helpers ──────────────────────────────────────────
