@@ -8,6 +8,7 @@ import { usePersistedState } from "./usePersistedState.js";
 export const SHORTCUT_DEFS = [
   { id: "rec",    label: "REC",    keys: ["r", "R"],         display: "R",     context: "home" },
   { id: "live",   label: "LIVE",   keys: ["l", "L"],         display: "L",     context: "home" },
+  { id: "meet",   label: "MEET",   keys: ["z", "Z"],         display: "Z",     context: "home" },
   { id: "stop",   label: "Stop",   keys: [" "],              display: "Space", context: "recording" },
   { id: "pause",  label: "Pause",  keys: ["p", "P"],         display: "P",     context: "recording" },
   { id: "mark",   label: "Marque", keys: ["m", "M"],         display: "M",     context: "recording" },
@@ -96,6 +97,11 @@ export function useKeyboardShortcuts({
         if ((e.key === "l" || e.key === "L") && shortcuts.live) {
           e.preventDefault();
           startRecording("live");
+          return;
+        }
+        if ((e.key === "z" || e.key === "Z") && shortcuts.meet) {
+          e.preventDefault();
+          startRecording("meet");
           return;
         }
       }

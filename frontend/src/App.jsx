@@ -6,6 +6,7 @@ import { useChunkUploader } from "./hooks/useChunkUploader.js";
 import { useKeyboardShortcuts, SHORTCUT_DEFS } from "./hooks/useKeyboardShortcuts.js";
 import { usePersistedState } from "./hooks/usePersistedState.js";
 import { useAuth } from "./hooks/useAuth.jsx";
+import { acquireMeetingStream, isSystemAudioSupported } from "./hooks/useSystemAudio.js";
 import Login from "./pages/Login.jsx";
 
 // ─── Helpers ──────────────────────────────────────────
@@ -124,6 +125,7 @@ function AppContent({ user, signOut }) {
   const pausedTimeRef = useRef(0);
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
+  const displayCleanupRef = useRef(null);
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
   const recNotesRef = useRef(null);
@@ -570,8 +572,30 @@ function AppContent({ user, signOut }) {
         console.log("[REC] speech started, isListening:", speech.isListening);
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      console.log("[REC] getUserMedia OK, tracks:", stream.getAudioTracks().length);
+      // Acquire audio stream based on capture mode
+      let stream;
+      const savedDeviceId = localStorage.getItem("nomad-device");
+
+      if (captureMode === "meet") {
+        if (!isSystemAudioSupported()) {
+          setError("Capture audio système non supportée par ce navigateur");
+          return;
+        }
+        const result = await acquireMeetingStream({ micDeviceId: savedDeviceId });
+        if (!result) return; // user cancelled picker
+        stream = result.mixedStream;
+        displayCleanupRef.current = result.cleanup;
+        if (!result.hasDisplayAudio) {
+          setSuccess("⚠️ Pas d'audio système détecté — avez-vous coché 'Partager l'audio' ?");
+        }
+        console.log("[MEET] Mixed stream OK, tracks:", stream.getAudioTracks().length);
+      } else {
+        const constraints = savedDeviceId
+          ? { audio: { deviceId: { exact: savedDeviceId } } }
+          : { audio: true };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log("[REC] getUserMedia OK, tracks:", stream.getAudioTracks().length);
+      }
 
       // Web Audio API for real-time visualizer
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -602,6 +626,8 @@ function AppContent({ user, signOut }) {
 
       recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
+        displayCleanupRef.current?.();
+        displayCleanupRef.current = null;
         if (cancelledRef.current) {
           cancelledRef.current = false;
           // Clean up chunk data on cancel
@@ -732,6 +758,9 @@ function AppContent({ user, signOut }) {
         audioCtxRef.current = null;
         analyserRef.current = null;
       }
+      // Cleanup display stream (MEET mode)
+      displayCleanupRef.current?.();
+      displayCleanupRef.current = null;
       // Save live transcript: prefer Whisper (higher quality) over Speech API
       if (recMode === "live") {
         if (whisperText.trim()) {
@@ -785,6 +814,7 @@ function AppContent({ user, signOut }) {
     clearInterval(flushTimerRef.current);
     if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
     if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; analyserRef.current = null; }
+    displayCleanupRef.current?.(); displayCleanupRef.current = null;
     speech.stop();
     mediaRecorderRef.current.stop();
     setIsRecording(false);
@@ -1725,6 +1755,11 @@ function AppContent({ user, signOut }) {
                 <button className="mode-btn" onClick={() => startRecording("live")} title="Raccourci: L">
                   📡 LIVE
                 </button>
+                {isSystemAudioSupported() && (
+                  <button className="mode-btn meet" onClick={() => startRecording("meet")} title="Micro + audio système (Raccourci: Z)">
+                    🖥️ MEET
+                  </button>
+                )}
                 <button className="mode-btn" onClick={() => setMode("import")}>
                   📁 Import
                 </button>
@@ -1768,7 +1803,7 @@ function AppContent({ user, signOut }) {
                 {/* Mode badge */}
                 <div style={{ textAlign: "center", marginBottom: 8 }}>
                   <span className={`status ${recMode === "live" ? "processing" : "recording"}`} style={{ fontSize: 12, padding: "4px 10px" }}>
-                    {recMode === "live" ? "📡 LIVE" : "🎙️ REC"}
+                    {recMode === "meet" ? "🖥️ MEET" : recMode === "live" ? "📡 LIVE" : "🎙️ REC"}
                     {recMode === "live" && (
                       <span style={{ marginLeft: 6, width: 6, height: 6, borderRadius: "50%", display: "inline-block", background: speech.isListening ? "var(--green)" : "var(--red)" }} />
                     )}
@@ -1886,7 +1921,7 @@ function AppContent({ user, signOut }) {
               <div className="review-screen">
                 <div className="review-header">
                   <span className={`status ${recMode === "live" ? "processing" : "recording"}`}>
-                    {recMode === "live" ? "📡 LIVE" : "🎙️ REC"} — {formatTimer(pendingDuration * 1000)}
+                    {recMode === "meet" ? "🖥️ MEET" : recMode === "live" ? "📡 LIVE" : "🎙️ REC"} — {formatTimer(pendingDuration * 1000)}
                   </span>
                   <div style={{ fontSize: 10, color: "var(--text-soft)", marginTop: 4, fontFamily: "monospace" }}>
                     audio: {pendingBlob ? `${(pendingBlob.size / 1024).toFixed(0)} KB ${pendingBlob.type}` : "aucun blob!"}
