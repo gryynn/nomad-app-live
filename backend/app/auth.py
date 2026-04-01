@@ -15,6 +15,7 @@ import secrets
 from datetime import datetime, timezone, timedelta
 
 import jwt
+from jwt import PyJWK
 import httpx
 from fastapi import Header, HTTPException
 from app.config import (
@@ -25,9 +26,9 @@ from app.config import (
     APP_JWT_SECRET,
 )
 
-# ─── OIDC Discovery cache ────────────────────────────
+# ─── OIDC Discovery + JWKS cache ─────────────────────
 _oidc_config = None
-_jwks_client = None
+_jwks_keys = None
 
 
 async def get_oidc_config() -> dict:
@@ -43,20 +44,36 @@ async def get_oidc_config() -> dict:
     return _oidc_config
 
 
-def get_jwks_client() -> jwt.PyJWKClient:
-    """Get or create a JWKS client for PocketID token validation."""
-    global _jwks_client
-    if _jwks_client:
-        return _jwks_client
+async def get_jwks_keys() -> list:
+    """Fetch JWKS keys via httpx (bypasses urllib 403 from Cloudflare)."""
+    global _jwks_keys
+    if _jwks_keys:
+        return _jwks_keys
     jwks_uri = f"{OIDC_ISSUER_URL}/.well-known/jwks.json"
-    _jwks_client = jwt.PyJWKClient(jwks_uri)
-    return _jwks_client
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(jwks_uri)
+        resp.raise_for_status()
+        data = resp.json()
+    _jwks_keys = data.get("keys", [])
+    return _jwks_keys
 
 
-def validate_id_token(id_token: str) -> dict:
-    """Validate a PocketID ID token using JWKS (RS256)."""
-    jwks = get_jwks_client()
-    signing_key = jwks.get_signing_key_from_jwt(id_token)
+async def validate_id_token(id_token: str) -> dict:
+    """Validate a PocketID ID token using JWKS (RS256), fetched via httpx."""
+    keys = await get_jwks_keys()
+
+    # Find the matching key by kid
+    header = jwt.get_unverified_header(id_token)
+    kid = header.get("kid")
+    key_data = None
+    for k in keys:
+        if k.get("kid") == kid:
+            key_data = k
+            break
+    if not key_data:
+        raise ValueError(f"No matching JWKS key for kid={kid}")
+
+    signing_key = PyJWK(key_data)
     payload = jwt.decode(
         id_token,
         signing_key.key,

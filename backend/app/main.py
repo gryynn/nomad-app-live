@@ -120,7 +120,7 @@ async def auth_callback(code: str = None, state: str = None, error: str = None):
         )
 
     try:
-        claims = validate_id_token(id_token)
+        claims = await validate_id_token(id_token)
     except Exception as e:
         print(f"[AUTH] ID token validation failed: {e}")
         return RedirectResponse(
