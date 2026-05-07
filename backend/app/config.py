@@ -17,3 +17,10 @@ OIDC_CLIENT_SECRET = os.getenv("OIDC_CLIENT_SECRET", "")
 OIDC_REDIRECT_URI = os.getenv("OIDC_REDIRECT_URI", "")
 APP_JWT_SECRET = os.getenv("APP_JWT_SECRET", "")
 APP_FRONTEND_URL = os.getenv("APP_FRONTEND_URL", "https://nomad.mgdesign.cloud")
+
+# Storage backend (local | nextcloud | s3 | supabase)
+STORAGE_DRIVER = os.getenv("STORAGE_DRIVER", "supabase").strip().lower()
+
+# Public URL of this backend, used to construct audio_url that external services
+# (Groq, Deepgram) can reach. Required when STORAGE_DRIVER != "supabase".
+PUBLIC_BACKEND_URL = os.getenv("PUBLIC_BACKEND_URL", "https://nomad-api.mgdesign.cloud").rstrip("/")

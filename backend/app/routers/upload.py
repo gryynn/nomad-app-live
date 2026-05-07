@@ -6,8 +6,14 @@ import tempfile
 import subprocess
 import os
 from pathlib import Path
-from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+from app.config import (
+    SUPABASE_URL,
+    SUPABASE_SERVICE_KEY,
+    PUBLIC_BACKEND_URL,
+)
 from app.auth import get_current_user
+from app.services.storage import get_storage_backend
+from app.services.storage.supabase import SupabaseStorageBackend
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -31,6 +37,21 @@ HEADERS = {
     "Content-Profile": "app_nomad",
 }
 BASE_URL = f"{SUPABASE_URL}/rest/v1"
+
+
+def _audio_url_for(session_id: str, storage_key: str) -> str:
+    """Compute the public audio_url stored in the DB.
+
+    When using Supabase Storage we keep the legacy public URL for backward
+    compat. For any other driver, we go through our /api/audio/{session_id}
+    proxy so external services (Groq, Deepgram) can reach the file.
+    """
+    backend = get_storage_backend()
+    if isinstance(backend, SupabaseStorageBackend):
+        # Strip "audio/" prefix to rebuild the bucket path
+        bucket_path = storage_key.split("/", 1)[1] if "/" in storage_key else storage_key
+        return f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{bucket_path}"
+    return f"{PUBLIC_BACKEND_URL}/api/audio/{session_id}"
 
 
 class AssembleRequest(BaseModel):
@@ -60,9 +81,20 @@ class UploadCompleteRequest(BaseModel):
 async def upload_init(req: UploadInitRequest, user=Depends(get_current_user)):
     """Get a signed upload URL for direct client-to-Supabase upload.
 
-    Returns a signed URL that the client can PUT the file to directly,
-    bypassing the backend entirely. No file size limit.
+    Currently Supabase-specific (depends on Supabase signed-URL primitive).
+    For non-Supabase drivers, clients should fall back to POST /upload (legacy
+    proxy) which works with any backend.
     """
+    backend = get_storage_backend()
+    if not isinstance(backend, SupabaseStorageBackend):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"/upload/init signed URLs are only supported on STORAGE_DRIVER=supabase "
+                f"(current: {backend.name}). Use POST /upload to proxy via backend."
+            ),
+        )
+
     file_ext = Path(req.filename).suffix.lower()
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -77,7 +109,6 @@ async def upload_init(req: UploadInitRequest, user=Depends(get_current_user)):
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Create signed upload URL via Supabase Storage API
             resp = await client.post(
                 f"{SUPABASE_URL}/storage/v1/object/upload/sign/nomad-audio/{storage_path}",
                 headers={
@@ -92,15 +123,16 @@ async def upload_init(req: UploadInitRequest, user=Depends(get_current_user)):
                 )
 
             signed_data = resp.json()
-            # Supabase returns a relative URL like /storage/v1/object/upload/sign/...?token=...
             signed_url = f"{SUPABASE_URL}{signed_data['url']}"
 
+        storage_key = f"audio/{storage_path}"
         return {
             "session_id": session_id,
             "storage_path": storage_path,
+            "storage_key": storage_key,
             "upload_url": signed_url,
             "content_type": content_type,
-            "audio_url": f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{storage_path}",
+            "audio_url": _audio_url_for(session_id, storage_key),
         }
     except HTTPException:
         raise
@@ -111,7 +143,8 @@ async def upload_init(req: UploadInitRequest, user=Depends(get_current_user)):
 @router.post("/complete")
 async def upload_complete(req: UploadCompleteRequest, user=Depends(get_current_user)):
     """Create session record after client has uploaded directly to storage."""
-    audio_url = f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{req.storage_path}"
+    storage_key = f"audio/{req.storage_path}"
+    audio_url = _audio_url_for(req.session_id, storage_key)
 
     try:
         async with httpx.AsyncClient() as client:
@@ -122,6 +155,7 @@ async def upload_complete(req: UploadCompleteRequest, user=Depends(get_current_u
                 "input_mode": "import",
                 "status": "uploaded",
                 "audio_url": audio_url,
+                "storage_key": storage_key,
                 "original_filename": req.filename,
                 "file_size_bytes": req.size,
             }
@@ -140,10 +174,12 @@ async def upload_complete(req: UploadCompleteRequest, user=Depends(get_current_u
         raise HTTPException(status_code=500, detail=f"Complete failed: {str(e)}")
 
 
-# Keep legacy endpoint for backward compatibility
 @router.post("")
 async def upload_audio_legacy(file: UploadFile = File(...), user=Depends(get_current_user)):
-    """Legacy: Upload via backend (kept for backward compat, prefer init+complete flow)."""
+    """Backend-proxied upload — works with any STORAGE_DRIVER.
+
+    Reads the file into memory and stores it via the configured storage backend.
+    """
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -153,34 +189,26 @@ async def upload_audio_legacy(file: UploadFile = File(...), user=Depends(get_cur
 
     session_id = str(uuid.uuid4())
     user_id = user["id"]
-    storage_path = f"{user_id}/{session_id}{file_ext}"
+    storage_key = f"audio/{user_id}/{session_id}{file_ext}"
+    content_type = file.content_type or MIME_MAP.get(file_ext, "audio/mpeg")
 
     try:
         file_content = await file.read()
         file_size = len(file_content)
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
-            storage_headers = {
-                "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-                "Content-Type": file.content_type or "audio/mpeg",
-            }
-            storage_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio/{storage_path}"
-            upload_resp = await client.post(
-                storage_url, headers=storage_headers, content=file_content
+        backend = get_storage_backend()
+        try:
+            await backend.upload(storage_key, file_content, content_type)
+        except Exception as e:
+            # Surface a meaningful error for the most common case
+            raise HTTPException(
+                status_code=500,
+                detail=f"Storage upload failed via {backend.name}: {e}"
             )
-            if upload_resp.status_code == 413:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Fichier trop volumineux ({file_size / 1024 / 1024:.0f} MB). Augmentez la limite dans Supabase Dashboard → Storage → Settings."
-                )
-            if upload_resp.status_code not in (200, 201):
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Storage upload failed ({upload_resp.status_code}): {upload_resp.text}"
-                )
 
-            audio_url = f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{storage_path}"
+        audio_url = _audio_url_for(session_id, storage_key)
+
+        async with httpx.AsyncClient() as client:
             session_data = {
                 "id": session_id,
                 "user_id": user_id,
@@ -188,6 +216,7 @@ async def upload_audio_legacy(file: UploadFile = File(...), user=Depends(get_cur
                 "input_mode": "import",
                 "status": "uploaded",
                 "audio_url": audio_url,
+                "storage_key": storage_key,
                 "original_filename": file.filename,
                 "file_size_bytes": file_size,
             }
@@ -208,7 +237,16 @@ async def upload_audio_legacy(file: UploadFile = File(...), user=Depends(get_cur
 
 
 async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: str, user_id: str):
-    """Background task: download chunks, ffmpeg remux, upload assembled file, update session."""
+    """Background task: download chunks, ffmpeg remux, upload assembled file via backend.
+
+    Note: chunks are still downloaded from Supabase Storage (`nomad-audio-chunks`)
+    because the current frontend uploads them there directly. The assembled file
+    is uploaded via the configured StorageBackend.
+
+    Future work: route chunks via POST /upload/chunk so live recording works on
+    100% of drivers (currently it requires Supabase for chunk storage).
+    """
+    backend = get_storage_backend()
     storage_headers = {
         "apikey": SUPABASE_SERVICE_KEY,
         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
@@ -219,7 +257,7 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
     try:
         with tempfile.TemporaryDirectory(prefix="nomad_assemble_") as tmpdir:
             async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
-                # 1. Download all chunks
+                # 1. Download all chunks from Supabase (current frontend behavior)
                 chunk_files = []
                 for i in range(chunk_count):
                     chunk_path = f"{session_id}/chunk_{str(i).zfill(4)}.webm"
@@ -254,31 +292,25 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
 
                 print(f"[ASSEMBLE] {chunk_count} chunks → {len(assembled_data) / 1024 / 1024:.1f} MB")
 
-                # 3. Upload assembled file
-                storage_path = f"{user_id}/{session_id}{ext}"
-                upload_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio/{storage_path}"
-                upload_resp = await client.post(
-                    upload_url,
-                    headers={**storage_headers, "Content-Type": content_type},
-                    content=assembled_data,
-                )
-                if upload_resp.status_code not in (200, 201):
-                    raise Exception(f"Upload failed ({upload_resp.status_code})")
+                # 3. Upload assembled file via the storage backend
+                storage_key = f"audio/{user_id}/{session_id}{ext}"
+                await backend.upload(storage_key, assembled_data, content_type)
 
-                # 4. Update session with audio_url + status
-                audio_url = f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{storage_path}"
+                # 4. Update session with audio_url + storage_key + status
+                audio_url = _audio_url_for(session_id, storage_key)
                 await client.patch(
                     f"{BASE_URL}/sessions?id=eq.{session_id}",
                     headers=HEADERS,
                     json={
                         "audio_url": audio_url,
+                        "storage_key": storage_key,
                         "file_size_bytes": len(assembled_data),
                         "status": "uploaded",
                     },
                 )
-                print(f"[ASSEMBLE] Session {session_id} updated with audio_url")
+                print(f"[ASSEMBLE] Session {session_id} stored on driver={backend.name}")
 
-                # 5. Cleanup chunks
+                # 5. Cleanup chunks from Supabase (where the frontend put them)
                 for i in range(chunk_count):
                     chunk_path = f"{session_id}/chunk_{str(i).zfill(4)}.webm"
                     await client.delete(
@@ -288,7 +320,6 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
 
     except Exception as e:
         print(f"[ASSEMBLE] Background assembly failed for {session_id}: {e}")
-        # Mark session as error so user knows
         try:
             async with httpx.AsyncClient() as client:
                 await client.patch(
@@ -302,15 +333,10 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
 
 @router.post("/assemble")
 async def assemble_chunks(req: AssembleRequest, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
-    """Create session immediately, then assemble chunks in background.
-
-    Returns instantly with session_id. The background task downloads chunks,
-    remuxes via ffmpeg, uploads the assembled file, and updates the session.
-    """
+    """Create session immediately, then assemble chunks in background."""
     user_id = user["id"]
 
     try:
-        # Create session record NOW (no audio_url yet, status="assembling")
         session_data = {
             "id": req.session_id,
             "user_id": user_id,
@@ -323,7 +349,7 @@ async def assemble_chunks(req: AssembleRequest, background_tasks: BackgroundTask
             session_data["title"] = req.title
         if req.live_transcript:
             session_data["transcript"] = req.live_transcript
-            session_data["status"] = "assembling"  # still assembling even with transcript
+            session_data["status"] = "assembling"
 
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -337,7 +363,6 @@ async def assemble_chunks(req: AssembleRequest, background_tasks: BackgroundTask
                     detail=f"Session create failed: {resp.text[:200]}"
                 )
 
-            # Save notes if provided
             if req.notes:
                 await client.post(
                     f"{BASE_URL}/notes",
@@ -349,7 +374,6 @@ async def assemble_chunks(req: AssembleRequest, background_tasks: BackgroundTask
                     },
                 )
 
-        # Launch assembly in background — returns immediately
         background_tasks.add_task(
             _do_assembly_background,
             req.session_id,
