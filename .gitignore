@@ -22,3 +22,4 @@ logs/security/
 # Auto-Claude generated artifacts (without dot prefix)
 auto-claude/
 context.txt
+gitleaks-report.json
