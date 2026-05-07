@@ -2,6 +2,8 @@
 
 Universal audio capture & intelligent transcription PWA
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 ## Concept
 
 Application PWA pour capturer, transcrire et organiser des enregistrements audio.
@@ -68,4 +70,10 @@ docker compose up -d
 
 ## License
 
-MIT
+NOMAD is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+This means: anyone can use, modify, and redistribute the code, including running it
+on a server. **However**, any modification deployed publicly (including SaaS) must be
+made available under the same license. See [LICENSE](LICENSE) for the full text.
+
+Copyright (C) 2026 Martin Graham
