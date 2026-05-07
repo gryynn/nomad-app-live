@@ -40,6 +40,17 @@ def get_storage_backend() -> StorageBackend:
                 base_path=os.getenv("NEXTCLOUD_BASE_PATH", "nomad-audio"),
             )
 
+        elif driver == "s3":
+            from .s3 import S3Backend
+            _instance = S3Backend(
+                bucket=os.getenv("S3_BUCKET", ""),
+                access_key=os.getenv("S3_ACCESS_KEY", ""),
+                secret_key=os.getenv("S3_SECRET_KEY", ""),
+                region=os.getenv("S3_REGION", "auto"),
+                endpoint_url=os.getenv("S3_ENDPOINT_URL") or None,
+                force_path_style=os.getenv("S3_FORCE_PATH_STYLE", "false").lower() == "true",
+            )
+
         elif driver == "supabase":
             from .supabase import SupabaseStorageBackend
             _instance = SupabaseStorageBackend(
@@ -50,7 +61,7 @@ def get_storage_backend() -> StorageBackend:
         else:
             raise ValueError(
                 f"Unknown STORAGE_DRIVER='{driver}'. "
-                f"Allowed: local, nextcloud, supabase"
+                f"Allowed: local, nextcloud, s3, supabase"
             )
 
         return _instance

@@ -12,10 +12,22 @@ Tags hierarchiques, marks temporels, notes, recherche full-text.
 ## Architecture
 
 - **Frontend** : React 19 + Vite + Tailwind v4 (PWA, offline-first)
-- **Backend** : FastAPI Python 3.12 (REST API, proxy Supabase)
-- **Database** : Supabase PostgreSQL, schema `app_nomad` (7 tables, RLS)
-- **Infra** : Docker Compose, Traefik reverse proxy, GREEN-LAB (Debian 12)
-- **Acces** : nomad.green-lab.local (LAN) / nomad.mgdesign.cloud (Cloudflare Access)
+- **Backend** : FastAPI Python 3.12 (REST API, storage abstraction)
+- **Storage** : pluggable — `local` (FS) / `nextcloud` (WebDAV) / `s3` (R2/B2/MinIO) / `supabase`
+- **Database** : Supabase PostgreSQL, schema `app_nomad` (4 tables, RLS)
+- **Infra** : Docker Compose + Traefik reverse proxy
+
+## Self-host minimal
+
+```bash
+git clone https://github.com/gryynn/nomad-app-live
+cd nomad-app-live
+cp .env.example backend/.env
+# Editez backend/.env : SUPABASE_*, GROQ_API_KEY, OIDC_*, STORAGE_DRIVER=local
+docker compose --env-file backend/.env up -d
+```
+
+Voir [docs/STORAGE.md](docs/STORAGE.md) pour configurer un autre driver.
 
 ## Schema DB (app_nomad)
 

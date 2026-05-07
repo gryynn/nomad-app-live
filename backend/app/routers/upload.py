@@ -10,8 +10,9 @@ from app.config import (
     SUPABASE_URL,
     SUPABASE_SERVICE_KEY,
     PUBLIC_BACKEND_URL,
+    AUDIO_TOKEN_TTL_MINUTES,
 )
-from app.auth import get_current_user
+from app.auth import get_current_user, create_audio_token
 from app.services.storage import get_storage_backend
 from app.services.storage.supabase import SupabaseStorageBackend
 
@@ -40,18 +41,32 @@ BASE_URL = f"{SUPABASE_URL}/rest/v1"
 
 
 def _audio_url_for(session_id: str, storage_key: str) -> str:
-    """Compute the public audio_url stored in the DB.
+    """Compute the canonical audio_url stored in the DB.
 
-    When using Supabase Storage we keep the legacy public URL for backward
-    compat. For any other driver, we go through our /api/audio/{session_id}
-    proxy so external services (Groq, Deepgram) can reach the file.
+    Two shapes:
+    - Supabase legacy: full public bucket URL (kept for backward compat).
+    - Any other driver: backend proxy URL `/api/audio/{session_id}`. Frontend
+      players use the user's Bearer token; external services (Groq, Deepgram)
+      get a short-lived signed token appended at call time, NOT stored in DB.
     """
     backend = get_storage_backend()
     if isinstance(backend, SupabaseStorageBackend):
-        # Strip "audio/" prefix to rebuild the bucket path
         bucket_path = storage_key.split("/", 1)[1] if "/" in storage_key else storage_key
         return f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{bucket_path}"
     return f"{PUBLIC_BACKEND_URL}/api/audio/{session_id}"
+
+
+def signed_audio_url(session_id: str, base_audio_url: str) -> str:
+    """Append a signed token to a backend-proxy audio URL — used right before
+    handing the URL to an external service (Groq/Deepgram).
+
+    On Supabase URLs we leave it untouched (already public).
+    """
+    if "/api/audio/" not in base_audio_url:
+        return base_audio_url
+    token = create_audio_token(session_id, expires_minutes=AUDIO_TOKEN_TTL_MINUTES)
+    sep = "&" if "?" in base_audio_url else "?"
+    return f"{base_audio_url}{sep}token={token}"
 
 
 class AssembleRequest(BaseModel):
@@ -237,67 +252,58 @@ async def upload_audio_legacy(file: UploadFile = File(...), user=Depends(get_cur
 
 
 async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: str, user_id: str):
-    """Background task: download chunks, ffmpeg remux, upload assembled file via backend.
-
-    Note: chunks are still downloaded from Supabase Storage (`nomad-audio-chunks`)
-    because the current frontend uploads them there directly. The assembled file
-    is uploaded via the configured StorageBackend.
-
-    Future work: route chunks via POST /upload/chunk so live recording works on
-    100% of drivers (currently it requires Supabase for chunk storage).
+    """Background task: download chunks via backend, ffmpeg remux, upload assembled
+    via backend, cleanup chunks via backend. 100% backend-mediated — works on
+    every driver.
     """
     backend = get_storage_backend()
-    storage_headers = {
-        "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-    }
     ext = ".webm" if "webm" in mime_type else ".mp4"
     content_type = mime_type or "audio/webm"
 
     try:
         with tempfile.TemporaryDirectory(prefix="nomad_assemble_") as tmpdir:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
-                # 1. Download all chunks from Supabase (current frontend behavior)
-                chunk_files = []
-                for i in range(chunk_count):
-                    chunk_path = f"{session_id}/chunk_{str(i).zfill(4)}.webm"
-                    chunk_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio-chunks/{chunk_path}"
-                    resp = await client.get(chunk_url, headers=storage_headers)
-                    if resp.status_code != 200:
-                        raise Exception(f"Failed to download chunk {i}: {resp.status_code}")
-                    chunk_file = os.path.join(tmpdir, f"chunk_{str(i).zfill(4)}.webm")
-                    with open(chunk_file, "wb") as f:
-                        f.write(resp.content)
-                    chunk_files.append(chunk_file)
+            # 1. Download all chunks via the storage backend
+            chunk_files = []
+            for i in range(chunk_count):
+                chunk_key = f"chunks/{session_id}/chunk_{str(i).zfill(4)}.webm"
+                try:
+                    chunk_data = await backend.download(chunk_key)
+                except FileNotFoundError:
+                    raise Exception(f"Chunk {i} missing on storage backend ({backend.name})")
+                chunk_file = os.path.join(tmpdir, f"chunk_{str(i).zfill(4)}.webm")
+                with open(chunk_file, "wb") as f:
+                    f.write(chunk_data)
+                chunk_files.append(chunk_file)
 
-                # 2. Remux via ffmpeg
-                concat_list = os.path.join(tmpdir, "concat.txt")
-                with open(concat_list, "w") as f:
-                    for cf in chunk_files:
-                        safe_path = cf.replace("\\", "/")
-                        f.write(f"file '{safe_path}'\n")
+            # 2. Remux via ffmpeg
+            concat_list = os.path.join(tmpdir, "concat.txt")
+            with open(concat_list, "w") as f:
+                for cf in chunk_files:
+                    safe_path = cf.replace("\\", "/")
+                    f.write(f"file '{safe_path}'\n")
 
-                output_file = os.path.join(tmpdir, f"assembled{ext}")
-                result = subprocess.run(
-                    ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                     "-i", concat_list, "-c", "copy", output_file],
-                    capture_output=True, text=True, timeout=300,
-                )
-                if result.returncode != 0:
-                    print(f"[ASSEMBLE] ffmpeg stderr: {result.stderr[-500:]}")
-                    raise Exception(f"ffmpeg failed (code {result.returncode})")
+            output_file = os.path.join(tmpdir, f"assembled{ext}")
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                 "-i", concat_list, "-c", "copy", output_file],
+                capture_output=True, text=True, timeout=300,
+            )
+            if result.returncode != 0:
+                print(f"[ASSEMBLE] ffmpeg stderr: {result.stderr[-500:]}")
+                raise Exception(f"ffmpeg failed (code {result.returncode})")
 
-                with open(output_file, "rb") as f:
-                    assembled_data = f.read()
+            with open(output_file, "rb") as f:
+                assembled_data = f.read()
 
-                print(f"[ASSEMBLE] {chunk_count} chunks → {len(assembled_data) / 1024 / 1024:.1f} MB")
+            print(f"[ASSEMBLE] {chunk_count} chunks → {len(assembled_data) / 1024 / 1024:.1f} MB")
 
-                # 3. Upload assembled file via the storage backend
-                storage_key = f"audio/{user_id}/{session_id}{ext}"
-                await backend.upload(storage_key, assembled_data, content_type)
+            # 3. Upload assembled file via the storage backend
+            storage_key = f"audio/{user_id}/{session_id}{ext}"
+            await backend.upload(storage_key, assembled_data, content_type)
 
-                # 4. Update session with audio_url + storage_key + status
-                audio_url = _audio_url_for(session_id, storage_key)
+            # 4. Update session with audio_url + storage_key + status
+            audio_url = _audio_url_for(session_id, storage_key)
+            async with httpx.AsyncClient() as client:
                 await client.patch(
                     f"{BASE_URL}/sessions?id=eq.{session_id}",
                     headers=HEADERS,
@@ -308,15 +314,15 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
                         "status": "uploaded",
                     },
                 )
-                print(f"[ASSEMBLE] Session {session_id} stored on driver={backend.name}")
+            print(f"[ASSEMBLE] Session {session_id} stored on driver={backend.name}")
 
-                # 5. Cleanup chunks from Supabase (where the frontend put them)
-                for i in range(chunk_count):
-                    chunk_path = f"{session_id}/chunk_{str(i).zfill(4)}.webm"
-                    await client.delete(
-                        f"{SUPABASE_URL}/storage/v1/object/nomad-audio-chunks/{chunk_path}",
-                        headers=storage_headers,
-                    )
+            # 5. Cleanup chunks via the storage backend
+            for i in range(chunk_count):
+                chunk_key = f"chunks/{session_id}/chunk_{str(i).zfill(4)}.webm"
+                try:
+                    await backend.delete(chunk_key)
+                except Exception:
+                    pass  # best-effort cleanup
 
     except Exception as e:
         print(f"[ASSEMBLE] Background assembly failed for {session_id}: {e}")
@@ -329,6 +335,41 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
                 )
         except Exception:
             pass
+
+
+@router.post("/chunk/{session_id}/{idx}")
+async def upload_chunk(
+    session_id: str,
+    idx: int,
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    """Receive one live-recording chunk and store it via the configured backend.
+
+    Replaces the legacy direct-to-Supabase chunk upload, so live recording works
+    on every driver (local, nextcloud, s3, supabase).
+
+    Frontend hook `useChunkUploader.js` POSTs each 30s slice here. The chunk is
+    stored under key `chunks/{session_id}/chunk_NNNN.webm`. The assembler
+    (`_do_assembly_background`) reads them back via `backend.download(...)`.
+    """
+    if idx < 0 or idx > 99999:
+        raise HTTPException(status_code=400, detail="Invalid chunk index")
+
+    backend = get_storage_backend()
+    chunk_key = f"chunks/{session_id}/chunk_{idx:04d}.webm"
+    content_type = file.content_type or "audio/webm"
+
+    try:
+        data = await file.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="Empty chunk")
+        await backend.upload(chunk_key, data, content_type)
+        return {"ok": True, "key": chunk_key, "size": len(data)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chunk upload failed: {e}")
 
 
 @router.post("/assemble")

@@ -15,12 +15,15 @@ import re
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Header
 from fastapi.responses import StreamingResponse, RedirectResponse
 
-from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY, AUDIO_TOKEN_REQUIRED
 from app.services.storage import get_storage_backend
 from app.services.storage.supabase import SupabaseStorageBackend
+from app.auth import verify_audio_token, get_current_user
+import jwt
+from app.config import APP_JWT_SECRET
 
 
 router = APIRouter(prefix="/audio", tags=["audio"])
@@ -83,8 +86,40 @@ def _derive_key_from_url(url: Optional[str]) -> Optional[str]:
 _RANGE_RE = re.compile(r"bytes=(\d+)-(\d*)")
 
 
+def _check_audio_access(
+    session_id: str,
+    token: Optional[str],
+    authorization: Optional[str],
+) -> None:
+    """Two ways to access an audio file:
+    1. ?token=<JWT> with scope=audio:read,sid=session_id (short-lived signed URL)
+    2. Authorization: Bearer <user JWT> (logged-in user — same as the rest of the API)
+
+    If AUDIO_TOKEN_REQUIRED=false, falls back to public access (security through obscurity).
+    """
+    # Try signed URL token first — what Groq/Deepgram use
+    if token and verify_audio_token(token, session_id):
+        return
+    # Try logged-in user
+    if authorization and authorization.startswith("Bearer "):
+        try:
+            jwt.decode(authorization[7:], APP_JWT_SECRET, algorithms=["HS256"])
+            return
+        except Exception:
+            pass
+    if AUDIO_TOKEN_REQUIRED:
+        raise HTTPException(status_code=401, detail="Missing or invalid audio token")
+    # else: public mode, allow
+
+
 @router.get("/{session_id}")
-async def get_audio(session_id: str, request: Request):
+async def get_audio(
+    session_id: str,
+    request: Request,
+    token: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+):
+    _check_audio_access(session_id, token, authorization)
     backend = get_storage_backend()
     key = await _resolve_storage_key(session_id)
     if not key:
