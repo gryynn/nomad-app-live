@@ -179,10 +179,23 @@ async def get_current_user(authorization: str = Header(None)) -> dict:
     if not user_id:
         raise HTTPException(status_code=401, detail="Token missing user ID")
 
+    # Map legacy PocketID `sub` values to their canonical Supabase Auth UUID
+    # so the same person sees the same data whether they log in via OIDC web
+    # or via Supabase Auth (mobile). Add entries here as users migrate.
+    user_id = _POCKETID_TO_SUPABASE.get(user_id, user_id)
+
     # Supabase tokens carry email at top level; PocketID-minted ones do too.
     email = payload.get("email") or payload.get("user_metadata", {}).get("email", "")
 
     return {"id": user_id, "email": email}
+
+
+# PocketID `sub` → Supabase Auth UUID. Keep this list short — when many users
+# migrate, move to a DB-backed table.
+_POCKETID_TO_SUPABASE = {
+    # martin.greengraham@gmail.com
+    "1750a138-e618-46b8-ac40-1aa2b62d9e81": "f7d87f74-5ba1-4d10-adbc-06cbdd06722e",
+}
 
 
 async def get_optional_user(authorization: str = Header(None)) -> dict | None:
