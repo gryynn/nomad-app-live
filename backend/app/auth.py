@@ -24,6 +24,7 @@ from app.config import (
     OIDC_CLIENT_SECRET,
     OIDC_REDIRECT_URI,
     APP_JWT_SECRET,
+    SUPABASE_JWT_SECRET,
 )
 
 # ─── OIDC Discovery + JWKS cache ─────────────────────
@@ -121,8 +122,39 @@ def create_access_token(user_id: str, email: str, expires_hours: int = 24) -> st
     return jwt.encode(payload, APP_JWT_SECRET, algorithm="HS256")
 
 
+def _decode_supabase_jwt(token: str) -> dict | None:
+    """Try to decode as a Supabase access_token (HS256 signed with the project's
+    JWT secret). Returns the payload dict on success, None on any failure.
+    Used as a fallback in `get_current_user` so the mobile app can authenticate
+    via Supabase Auth without minting a local JWT first.
+
+    We don't check `aud` or `iss` via pyjwt because they vary by deployment
+    (self-hosted Supabase has a different issuer than cloud, audience differs
+    between `authenticated` and `anon`). Instead we explicitly require
+    `role == "authenticated"` so anon/service tokens cannot access protected
+    routes."""
+    if not SUPABASE_JWT_SECRET:
+        return None
+    try:
+        payload = jwt.decode(
+            token,
+            SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            options={"verify_aud": False, "verify_iss": False},
+        )
+    except (jwt.InvalidTokenError, jwt.DecodeError):
+        return None
+    # Reject anon / service tokens — they would otherwise pass signature check
+    if payload.get("role") != "authenticated":
+        return None
+    return payload
+
+
 async def get_current_user(authorization: str = Header(None)) -> dict:
-    """Extract and validate user from local JWT. Raises 401 if invalid."""
+    """Validate the Bearer token. Accepts either:
+    - a local APP_JWT_SECRET-signed token (PocketID OIDC web flow), or
+    - a Supabase access_token (mobile / future Supabase-Auth web flow).
+    Raises 401 if neither matches."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
 
@@ -131,21 +163,26 @@ async def get_current_user(authorization: str = Header(None)) -> dict:
     if not APP_JWT_SECRET:
         raise HTTPException(status_code=500, detail="Auth not configured (missing APP_JWT_SECRET)")
 
+    # 1. Try the local (PocketID-issued) JWT first
+    payload = None
     try:
         payload = jwt.decode(token, APP_JWT_SECRET, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        # 2. Fall back to Supabase access_token
+        payload = _decode_supabase_jwt(token)
+        if payload is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
 
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Token missing user ID")
 
-    return {
-        "id": user_id,
-        "email": payload.get("email", ""),
-    }
+    # Supabase tokens carry email at top level; PocketID-minted ones do too.
+    email = payload.get("email") or payload.get("user_metadata", {}).get("email", "")
+
+    return {"id": user_id, "email": email}
 
 
 async def get_optional_user(authorization: str = Header(None)) -> dict | None:

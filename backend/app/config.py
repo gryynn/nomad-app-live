@@ -5,6 +5,10 @@ load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+# Used by the mobile auth flow: clients log in directly against Supabase Auth
+# and send the resulting access_token as Bearer. We decode it with the same
+# HS256 secret Supabase signs with.
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 WYNONA_HOST = os.getenv("WYNONA_HOST", "")
