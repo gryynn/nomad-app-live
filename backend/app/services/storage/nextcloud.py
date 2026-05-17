@@ -44,6 +44,9 @@ class NextcloudBackend(StorageBackend):
         self.user = user
         self.auth = (user, password)
         self.base_path = base_path.strip("/")
+        # Cloudflare/Nextcloud gzip-encode HEAD/GET responses by default, which makes
+        # Content-Length absent. Force identity so size() and Range responses work.
+        self._default_headers = {"Accept-Encoding": "identity"}
 
     def _dav_url(self, key: str) -> str:
         key = key.lstrip("/")
@@ -57,7 +60,7 @@ class NextcloudBackend(StorageBackend):
         if not parts:
             return
         path = ""
-        async with httpx.AsyncClient(timeout=30.0, auth=self.auth) as client:
+        async with httpx.AsyncClient(timeout=30.0, auth=self.auth, headers=self._default_headers) as client:
             for p in parts:
                 if not p:
                     continue
@@ -72,7 +75,7 @@ class NextcloudBackend(StorageBackend):
 
     async def upload(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         await self._ensure_dir(key)
-        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0), auth=self.auth) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0), auth=self.auth, headers=self._default_headers) as client:
             resp = await client.put(
                 self._dav_url(key),
                 content=data,
@@ -82,7 +85,7 @@ class NextcloudBackend(StorageBackend):
                 raise RuntimeError(f"Nextcloud upload failed ({resp.status_code}): {resp.text[:200]}")
 
     async def download(self, key: str) -> bytes:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0), auth=self.auth) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0), auth=self.auth, headers=self._default_headers) as client:
             resp = await client.get(self._dav_url(key))
             if resp.status_code == 404:
                 raise FileNotFoundError(key)
@@ -99,7 +102,7 @@ class NextcloudBackend(StorageBackend):
         headers = {}
         if start or end is not None:
             headers["Range"] = f"bytes={start}-{end if end is not None else ''}"
-        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0), auth=self.auth) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0), auth=self.auth, headers=self._default_headers) as client:
             async with client.stream("GET", self._dav_url(key), headers=headers) as resp:
                 if resp.status_code == 404:
                     raise FileNotFoundError(key)
@@ -110,18 +113,18 @@ class NextcloudBackend(StorageBackend):
                     yield chunk
 
     async def delete(self, key: str) -> None:
-        async with httpx.AsyncClient(timeout=30.0, auth=self.auth) as client:
+        async with httpx.AsyncClient(timeout=30.0, auth=self.auth, headers=self._default_headers) as client:
             resp = await client.delete(self._dav_url(key))
             if resp.status_code not in (200, 204, 404):
                 raise RuntimeError(f"Nextcloud delete failed ({resp.status_code}): {resp.text[:200]}")
 
     async def exists(self, key: str) -> bool:
-        async with httpx.AsyncClient(timeout=15.0, auth=self.auth) as client:
+        async with httpx.AsyncClient(timeout=15.0, auth=self.auth, headers=self._default_headers) as client:
             resp = await client.head(self._dav_url(key))
             return resp.status_code == 200
 
     async def size(self, key: str) -> int:
-        async with httpx.AsyncClient(timeout=15.0, auth=self.auth) as client:
+        async with httpx.AsyncClient(timeout=15.0, auth=self.auth, headers=self._default_headers) as client:
             resp = await client.head(self._dav_url(key))
             if resp.status_code == 404:
                 raise FileNotFoundError(key)
@@ -133,7 +136,7 @@ class NextcloudBackend(StorageBackend):
             '<?xml version="1.0"?>'
             '<d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>'
         )
-        async with httpx.AsyncClient(timeout=60.0, auth=self.auth) as client:
+        async with httpx.AsyncClient(timeout=60.0, auth=self.auth, headers=self._default_headers) as client:
             resp = await client.request(
                 "PROPFIND",
                 self._dav_url(prefix.rstrip("/") + "/"),
