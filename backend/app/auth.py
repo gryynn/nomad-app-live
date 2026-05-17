@@ -144,10 +144,38 @@ def _decode_supabase_jwt(token: str) -> dict | None:
         )
     except (jwt.InvalidTokenError, jwt.DecodeError):
         return None
-    # Reject anon / service tokens — they would otherwise pass signature check
     if payload.get("role") != "authenticated":
         return None
     return payload
+
+
+# ─── Audio access tokens (signed URLs for /api/audio/{id}) ────────
+
+def create_audio_token(session_id: str, expires_minutes: int = 15) -> str:
+    """Mint a short-lived JWT that grants read access to one specific session's audio.
+
+    Used to embed in audio_url so external services (Groq/Deepgram) and HTML5 <audio>
+    players can fetch the file without an Authorization header — but only briefly,
+    and only for the exact session_id signed.
+    """
+    payload = {
+        "scope": "audio:read",
+        "sid": session_id,
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=expires_minutes),
+    }
+    return jwt.encode(payload, APP_JWT_SECRET, algorithm="HS256")
+
+
+def verify_audio_token(token: str, session_id: str) -> bool:
+    """True iff `token` is a valid audio token for `session_id`. Constant-time-ish."""
+    if not token or not APP_JWT_SECRET:
+        return False
+    try:
+        payload = jwt.decode(token, APP_JWT_SECRET, algorithms=["HS256"])
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return False
+    return payload.get("scope") == "audio:read" and payload.get("sid") == session_id
 
 
 async def get_current_user(authorization: str = Header(None)) -> dict:

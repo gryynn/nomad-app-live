@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 import httpx
-from app.routers import sessions, tags, engines, upload, transcribe
+from app.routers import sessions, tags, engines, upload, transcribe, audio
 from app.auth import (
     get_current_user,
     get_oidc_config,
@@ -48,6 +48,7 @@ app.include_router(tags.sessions_tags_router, prefix="/api")
 app.include_router(engines.router, prefix="/api")
 app.include_router(upload.router, prefix="/api")
 app.include_router(transcribe.router, prefix="/api")
+app.include_router(audio.router, prefix="/api")
 
 
 @app.get("/api/health")

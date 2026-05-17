@@ -1,23 +1,47 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { supabase } from "../lib/supabase.js";
 
 const MAX_RETRIES = 3;
 const BACKOFF_BASE = 1000; // 1s, 3s, 9s
+const API_BASE = import.meta.env.VITE_API_URL || "";
+
+function getAuthToken() {
+  return localStorage.getItem("nomad_token") || "";
+}
+
+async function uploadChunkToBackend(sessionId, seq, blob) {
+  const token = getAuthToken();
+  if (!token) throw new Error("Not authenticated");
+
+  const fd = new FormData();
+  fd.append("file", blob, `chunk_${String(seq).padStart(4, "0")}.webm`);
+
+  const url = `${API_BASE}/api/upload/chunk/${sessionId}/${seq}`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+  });
+  if (!resp.ok) {
+    let detail = "";
+    try { detail = (await resp.json()).detail || ""; } catch (_) { detail = await resp.text(); }
+    throw new Error(`HTTP ${resp.status}${detail ? `: ${detail}` : ""}`);
+  }
+  return resp.json();
+}
 
 export function useChunkUploader() {
   const [progress, setProgress] = useState({ uploaded: 0, total: 0, isUploading: false });
   const queueRef = useRef([]);
   const processingRef = useRef(false);
   const failedRef = useRef([]);
-  const resolversRef = useRef([]); // waitForAllUploads resolvers
-  const onUploadedRef = useRef(null); // callback(sessionId, seq) on successful upload
+  const resolversRef = useRef([]);
+  const onUploadedRef = useRef(null);
 
   const processQueue = useCallback(async () => {
     if (processingRef.current) return;
     processingRef.current = true;
 
     while (queueRef.current.length > 0) {
-      // Pause if offline
       if (!navigator.onLine) {
         await new Promise((resolve) => {
           const handler = () => {
@@ -26,7 +50,6 @@ export function useChunkUploader() {
           };
           window.addEventListener("online", handler);
         });
-        // Re-queue failed chunks for retry now that we're back online
         if (failedRef.current.length > 0) {
           console.log(`[CHUNK-UPLOAD] Back online, re-queuing ${failedRef.current.length} failed chunk(s)`);
           queueRef.current.push(...failedRef.current);
@@ -38,15 +61,9 @@ export function useChunkUploader() {
       let success = false;
 
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        // Check online before each attempt
         if (!navigator.onLine) break;
         try {
-          const path = `${item.sessionId}/chunk_${String(item.seq).padStart(4, "0")}.webm`;
-          const { error } = await supabase.storage
-            .from("nomad-audio-chunks")
-            .upload(path, item.blob, { upsert: true, contentType: item.blob.type || "audio/webm" });
-
-          if (error) throw error;
+          await uploadChunkToBackend(item.sessionId, item.seq, item.blob);
           success = true;
           break;
         } catch (err) {
@@ -62,12 +79,10 @@ export function useChunkUploader() {
 
       if (success) {
         setProgress((prev) => ({ ...prev, uploaded: prev.uploaded + 1 }));
-        // Notify caller (e.g., LIVE mode chunk transcription)
         if (onUploadedRef.current) {
           try { onUploadedRef.current(item.sessionId, item.seq); } catch (_) {}
         }
       } else if (!navigator.onLine) {
-        // Went offline mid-retry → put back in queue (will wait for online at top of loop)
         queueRef.current.unshift(item);
       } else {
         failedRef.current.push(item);
@@ -78,14 +93,10 @@ export function useChunkUploader() {
     processingRef.current = false;
     setProgress((prev) => ({ ...prev, isUploading: false }));
 
-    // Resolve all waitForAllUploads promises
-    for (const resolve of resolversRef.current) {
-      resolve();
-    }
+    for (const resolve of resolversRef.current) resolve();
     resolversRef.current = [];
   }, []);
 
-  // Listen for online event to retry failed chunks even when queue is idle
   useEffect(() => {
     const handleOnline = () => {
       if (failedRef.current.length > 0) {
@@ -100,7 +111,6 @@ export function useChunkUploader() {
     return () => window.removeEventListener("online", handleOnline);
   }, [processQueue]);
 
-  /** Queue a chunk for upload (fire-and-forget) */
   const uploadChunk = useCallback((sessionId, seq, blob) => {
     queueRef.current.push({ sessionId, seq, blob });
     setProgress((prev) => ({
@@ -111,9 +121,7 @@ export function useChunkUploader() {
     processQueue();
   }, [processQueue]);
 
-  /** Wait for all queued uploads to complete. Re-queues failed items for one more round. */
   const waitForAllUploads = useCallback(() => {
-    // Re-queue failed chunks for one more attempt (user is stopping, likely back online)
     if (failedRef.current.length > 0) {
       console.log(`[CHUNK-UPLOAD] waitForAllUploads: re-queuing ${failedRef.current.length} failed chunk(s)`);
       queueRef.current.push(...failedRef.current);
@@ -129,12 +137,8 @@ export function useChunkUploader() {
     });
   }, [processQueue]);
 
-  /** Get list of chunks that failed after all retries */
-  const getFailedChunks = useCallback(() => {
-    return [...failedRef.current];
-  }, []);
+  const getFailedChunks = useCallback(() => [...failedRef.current], []);
 
-  /** Reset state for a new recording */
   const reset = useCallback(() => {
     queueRef.current = [];
     failedRef.current = [];
@@ -143,7 +147,6 @@ export function useChunkUploader() {
     setProgress({ uploaded: 0, total: 0, isUploading: false });
   }, []);
 
-  /** Set callback for when a chunk is successfully uploaded: fn(sessionId, seq) */
   const setOnUploaded = useCallback((fn) => {
     onUploadedRef.current = fn;
   }, []);

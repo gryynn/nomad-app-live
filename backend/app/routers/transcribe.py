@@ -74,6 +74,11 @@ async def process_transcription(job_id: str, session_id: str, engine: str, audio
     try:
         queue_manager.update_status(job_id, "processing")
 
+        # If audio_url points to our backend proxy, append a short-lived signed token
+        # so external services (Groq/Deepgram) can reach the file without a Bearer.
+        from app.routers.upload import signed_audio_url
+        audio_url = signed_audio_url(session_id, audio_url)
+
         # Resolve auto engine
         resolved = await resolve_engine(engine, audio_url)
         print(f"[TRANSCRIBE] job={job_id} engine={engine}→{resolved}")
