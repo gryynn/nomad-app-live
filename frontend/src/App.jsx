@@ -1750,22 +1750,22 @@ function AppContent({ user, signOut }) {
                     type="button"
                     onClick={toggleAutoTranscribe}
                     title={prefs.auto_transcribe
-                      ? "Transcription automatique : ON. Toute nouvelle session sera transcrite. Clic pour désactiver."
-                      : "Transcription automatique : OFF. Les nouvelles sessions sont sauvegardées sans transcription. Clic sur ↻ par session pour transcrire à la demande."}
+                      ? "Transcription auto : ON — toutes nouvelles sessions sont transcrites. Clic pour désactiver."
+                      : "Transcription auto : OFF — sauvegarde sans transcription, clic ↻ par session pour transcrire à la demande. Clic ici pour réactiver."}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
-                      gap: 8,
-                      padding: "4px 10px 4px 4px",
+                      gap: 5,
+                      padding: "2px 7px 2px 3px",
                       borderRadius: 999,
-                      border: `1.5px solid ${prefs.auto_transcribe ? "#3aaf7c" : "#cc6b3c"}`,
-                      background: prefs.auto_transcribe ? "rgba(58,175,124,0.12)" : "rgba(204,107,60,0.12)",
-                      color: prefs.auto_transcribe ? "#3aaf7c" : "#cc6b3c",
+                      border: prefs.auto_transcribe ? "1px solid transparent" : "1px solid #cc6b3c",
+                      background: prefs.auto_transcribe ? "transparent" : "rgba(204,107,60,0.10)",
+                      color: prefs.auto_transcribe ? "currentColor" : "#cc6b3c",
+                      opacity: prefs.auto_transcribe ? 0.45 : 1,
                       cursor: "pointer",
-                      fontSize: "0.72rem",
-                      fontWeight: 600,
-                      letterSpacing: "0.06em",
-                      textTransform: "uppercase",
+                      fontSize: "0.62rem",
+                      fontWeight: prefs.auto_transcribe ? 400 : 600,
+                      letterSpacing: "0.04em",
                       lineHeight: 1,
                     }}
                   >
@@ -1775,17 +1775,17 @@ function AppContent({ user, signOut }) {
                         display: "inline-flex",
                         alignItems: "center",
                         justifyContent: prefs.auto_transcribe ? "flex-end" : "flex-start",
-                        width: 26,
-                        height: 14,
+                        width: 18,
+                        height: 10,
                         borderRadius: 999,
-                        background: prefs.auto_transcribe ? "#3aaf7c" : "#cc6b3c",
-                        padding: 2,
+                        background: prefs.auto_transcribe ? "currentColor" : "#cc6b3c",
+                        padding: 1.5,
                         transition: "background 120ms",
                       }}
                     >
-                      <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#fff" }} />
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#fff" }} />
                     </span>
-                    Auto-transcription {prefs.auto_transcribe ? "ON" : "OFF"}
+                    auto-T {prefs.auto_transcribe ? "" : "OFF"}
                   </button>
                 </div>
                 <div className="engine-row">
