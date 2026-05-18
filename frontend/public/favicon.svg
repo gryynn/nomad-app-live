@@ -1,6 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#000"/>
-  <circle cx="16" cy="14" r="5" fill="none" stroke="#C8FF00" stroke-width="2"/>
-  <line x1="16" y1="19" x2="16" y2="26" stroke="#C8FF00" stroke-width="2" stroke-linecap="round"/>
-  <line x1="11" y1="23" x2="21" y2="23" stroke="#C8FF00" stroke-width="2" stroke-linecap="round"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  NOMAD launcher icon — black & white waveform.
+  viewBox 1024x1024, suitable for Android adaptive icons (foreground+bg
+  combined here for simplicity) and for the PWA favicon.
+  Safe zone for Android adaptive launcher = central 66% (≈ 340 to 684);
+  the wave below stays within ~96..928 which crops gracefully if needed.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- background -->
+  <rect width="1024" height="1024" fill="#000000"/>
+
+  <!-- single elegant wave : 1.5 cycle (up → down → up → down) -->
+  <!-- starts mid-left, smooth Bézier hops, ends mid-right -->
+  <path
+    d="M 96 512 Q 224 256 352 512 T 608 512 T 864 512"
+    stroke="#ffffff"
+    stroke-width="72"
+    fill="none"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
 </svg>
