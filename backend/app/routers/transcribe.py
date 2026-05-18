@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Query
 import httpx
 from app.models.schemas import TranscribeRequest
 from app.auth import get_current_user
+from app.routers.preferences import get_user_preferences
 from app.services.queue_manager import QueueManager
 from app.services.groq_service import GroqService, GroqFileTooLargeError
 from app.services.deepgram_service import DeepgramService
@@ -141,10 +142,22 @@ async def transcribe_session(
     session_id: str,
     request: TranscribeRequest,
     background_tasks: BackgroundTasks,
+    auto: bool = Query(False, description="True if call is triggered automatically (PWA after upload, S26 watcher). False = manual button (always runs)."),
     user=Depends(get_current_user),
 ):
     if not session_id:
         raise HTTPException(status_code=400, detail="Invalid session_id")
+
+    # Respect user pref only for auto-triggered calls. Manual "Re-transcribe" button always runs.
+    if auto:
+        prefs = await get_user_preferences(user["id"])
+        if not prefs.auto_transcribe:
+            print(f"[TRANSCRIBE] auto-skip session={session_id} (user auto_transcribe=false)")
+            return {
+                "session_id": session_id,
+                "status": "skipped",
+                "reason": "auto_transcribe disabled by user",
+            }
 
     valid_engines = ["auto", "groq-turbo", "groq-large", "deepgram", "wynona"]
     if request.engine not in valid_engines:
@@ -196,8 +209,18 @@ async def transcribe_session(
 
 
 @router.post("/chunk/{session_id}/{seq}")
-async def transcribe_chunk(session_id: str, seq: int, user=Depends(get_current_user)):
+async def transcribe_chunk(
+    session_id: str,
+    seq: int,
+    auto: bool = Query(False, description="True if LIVE auto-trigger. False = manual (always runs)."),
+    user=Depends(get_current_user),
+):
     """Transcribe a single chunk from nomad-audio-chunks. Returns transcript text immediately."""
+    if auto:
+        prefs = await get_user_preferences(user["id"])
+        if not prefs.auto_transcribe:
+            return {"seq": seq, "text": "", "duration": 0, "segments": [], "skipped": True, "reason": "auto_transcribe disabled"}
+
     chunk_path = f"{session_id}/chunk_{str(seq).zfill(4)}.webm"
     chunk_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio-chunks/{chunk_path}"
 

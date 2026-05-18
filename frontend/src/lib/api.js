@@ -266,11 +266,15 @@ export const createTag = (data) =>
 export const getEngineStatus = () => request("/api/engines/status");
 
 // Transcription
-export const transcribe = (id, engine = "auto") =>
-  request(`/api/transcribe/${id}`, {
+// `auto=true` lets the backend respect the user's auto_transcribe preference (skip if disabled).
+// Manual button presses must call without auto (defaults false) so the backend always runs them.
+export const transcribe = (id, engine = "auto", opts = {}) => {
+  const qs = opts.auto ? "?auto=true" : "";
+  return request(`/api/transcribe/${id}${qs}`, {
     method: "POST",
     body: JSON.stringify({ engine }),
   });
+};
 
 export const getQueue = () => request("/api/transcribe/queue");
 
@@ -279,5 +283,12 @@ export const assembleChunks = (data) =>
   request("/api/upload/assemble", { method: "POST", body: JSON.stringify(data) });
 
 // Chunk transcription (LIVE mode — transcribe individual chunks during recording)
-export const transcribeChunk = (sessionId, seq) =>
-  request(`/api/transcribe/chunk/${sessionId}/${seq}`, { method: "POST" });
+export const transcribeChunk = (sessionId, seq, opts = {}) => {
+  const qs = opts.auto ? "?auto=true" : "";
+  return request(`/api/transcribe/chunk/${sessionId}/${seq}${qs}`, { method: "POST" });
+};
+
+// User preferences
+export const getPreferences = () => request("/api/preferences");
+export const setPreferences = (prefs) =>
+  request("/api/preferences", { method: "PUT", body: JSON.stringify(prefs) });

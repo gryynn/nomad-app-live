@@ -102,6 +102,22 @@ function AppContent({ user, signOut }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
+  // User preferences (auto-transcribe toggle, etc.)
+  const [prefs, setPrefs] = useState({ auto_transcribe: true });
+  useEffect(() => {
+    api.getPreferences().then(setPrefs).catch(() => { /* keep defaults */ });
+  }, []);
+  const toggleAutoTranscribe = async () => {
+    const next = { ...prefs, auto_transcribe: !prefs.auto_transcribe };
+    setPrefs(next);
+    try {
+      await api.setPreferences(next);
+    } catch (e) {
+      setError(`Impossible de sauvegarder la préférence: ${e.message}`);
+      setPrefs(prefs); // rollback local
+    }
+  };
+
   // Paste state
   const [pasteTitle, setPasteTitle] = useState("");
   const [pasteText, setPasteText] = useState("");
@@ -341,7 +357,7 @@ function AppContent({ user, signOut }) {
     }
     await api.updateSession(sessionId, updates);
     if (item.notes) await api.addNote(sessionId, item.notes);
-    if (item.engine) await api.transcribe(sessionId, item.engine);
+    if (item.engine) await api.transcribe(sessionId, item.engine, { auto: true });
   }, []);
 
   // Auto-sync on mount: register uploadFn so online event works
@@ -481,7 +497,7 @@ function AppContent({ user, signOut }) {
 
       // Retry up to 2 times with delay (storage propagation + Groq rate limits)
       const tryTranscribe = (attempt) => {
-        api.transcribeChunk(sessionId, seq)
+        api.transcribeChunk(sessionId, seq, { auto: true })
           .then((result) => {
             if (!result.text) return;
             console.log(`[LIVE-WHISPER] Chunk ${seq}: "${result.text.slice(0, 60)}..."`);
@@ -1002,12 +1018,16 @@ function AppContent({ user, signOut }) {
 
       // Optionally trigger transcription
       if (doTranscribe && !assemblyUsed) {
-        // Direct upload path — audio_url is ready, can transcribe now
+        // Direct upload path — audio_url is ready, can transcribe now (auto=true respects user pref)
         console.log("[SAVE] triggering transcription, engine:", selectedEngine);
-        const trResult = await api.transcribe(sessionId, selectedEngine);
+        const trResult = await api.transcribe(sessionId, selectedEngine, { auto: true });
         console.log("[SAVE] transcribe result:", trResult);
-        setSuccess(`Session sauvegardée, transcription lancée (${selectedEngine})...`);
-        pollTranscription(sessionId);
+        if (trResult && trResult.status === "skipped") {
+          setSuccess("Session sauvegardée. Transcription auto désactivée — clic sur ↻ pour transcrire à la demande.");
+        } else {
+          setSuccess(`Session sauvegardée, transcription lancée (${selectedEngine})...`);
+          pollTranscription(sessionId);
+        }
       } else if (doTranscribe && assemblyUsed) {
         // Assembly path — audio not ready yet, user will transcribe from session list
         setSuccess("Session sauvegardée ! Assembly en cours... Transcription disponible dans quelques instants.");
@@ -1570,6 +1590,23 @@ function AppContent({ user, signOut }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {!offline.isOnline && <span className="offline-badge">hors-ligne</span>}
           {offline.pendingCount > 0 && <span className="pending-badge" title={`${offline.pendingCount} élément(s) en attente de sync`} onClick={async () => { const items = await offline.getAllPending(); setSyncPanelItems(items); setSyncPanelOpen(true); }}>{offline.pendingCount}</span>}
+          <button
+            onClick={toggleAutoTranscribe}
+            title={prefs.auto_transcribe ? "Auto-transcription ON (toutes nouvelles sessions sont transcrites automatiquement). Clic pour désactiver." : "Auto-transcription OFF (transcrire à la demande via le bouton ↻ par session). Clic pour réactiver."}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "0.7rem",
+              opacity: prefs.auto_transcribe ? 0.45 : 1,
+              color: prefs.auto_transcribe ? "inherit" : "#e09a3c",
+              padding: "2px 6px",
+              fontWeight: prefs.auto_transcribe ? 400 : 600,
+              letterSpacing: "0.04em",
+            }}
+          >
+            {prefs.auto_transcribe ? "auto-T" : "auto-T OFF"}
+          </button>
           <div className={`status-dot ${!offline.isOnline ? "offline" : loading ? "offline" : ""}`} title={!offline.isOnline ? "Hors-ligne" : loading ? "Chargement..." : "Connecté"} />
           <button
             onClick={signOut}
