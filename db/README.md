@@ -1,14 +1,28 @@
 # Database schema — `app_nomad`
 
-NOMAD persists everything except audio bytes in a Postgres database (Supabase by default). This folder will host the canonical schema dump for OSS users.
+NOMAD persists everything except audio bytes in a Postgres database (Supabase by default).
 
-## Status
-
-The full schema export is **TODO before the public repo opens**. In the meantime, the easiest way to bootstrap a new instance is:
+## Bootstrap a new instance
 
 1. Create a free Supabase project at https://supabase.com
 2. Open the SQL editor
-3. Run the SQL below (V1 minimal schema — sessions, tags, notes, association tables, user_settings, RLS policies)
+3. Paste the contents of [`schema.sql`](schema.sql) and click Run
+
+The file is idempotent — re-running it on an existing instance is safe.
+
+## What's in `schema.sql`
+
+- 6 tables: `sessions`, `notes`, `tags`, `session_tags`, `session_attachments`, `user_settings`
+- 9 RLS policies (strict owner-only on every table, role = `authenticated`)
+- 2 plpgsql triggers (`updated_at` auto-bump on attachments + user_settings)
+- 10 indexes (incl. partial indexes on soft-deleted rows)
+- All grants properly scoped (anon revoked, authenticated CRUD, service_role full access)
+
+The dump anonymises everything: no seed data, no hardcoded UUIDs, no defaults that lock you into a single user.
+
+## ⚠️ Legacy SQL (older, kept for reference only)
+
+Below is the very minimal SQL we shipped first. **Prefer `schema.sql` above** — it's the authoritative version.
 
 ## Minimal V1 SQL (to run in Supabase SQL editor)
 

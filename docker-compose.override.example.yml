@@ -3,16 +3,25 @@
 #
 # Typical use cases:
 #   1. Point audio storage to a different disk/path on your host.
-#   2. Override Traefik labels for your own domain.
+#   2. Add a second Traefik route (e.g. local HTTPS + public HTTP via Cloudflare).
 #   3. Add a database/redis service that only your environment uses.
 
 services:
-  nomad-api:
-    # Example: bind audio storage to a large HDD instead of repo-local ./data/audio-local
-    volumes:
-      - /path/to/your/large/disk/nomad-audio:/data/audio-local
+  # 1. Point audio storage to a large HDD instead of repo-local ./data/audio-local.
+  #    Comment out if you're happy with the default ./data path.
+  # nomad-api:
+  #   volumes:
+  #     - /path/to/your/large/disk/nomad-audio:/data/audio-local
 
-  # Example: override Traefik labels for your own domain
+  # 2. Add a second Traefik route alongside the env-driven one from docker-compose.yml.
+  #    The base file already gives you one route on $NOMAD_FRONTEND_HOST / $NOMAD_API_HOST;
+  #    use this if you need a second one (eg. a public domain through Cloudflare Tunnel
+  #    in addition to your local HTTPS one).
   # nomad-frontend:
   #   labels:
-  #     - "traefik.http.routers.nomad-frontend-public.rule=Host(`nomad.your-domain.com`)"
+  #     - "traefik.http.routers.nomad-frontend-public.rule=Host(`nomad.your-public-domain.com`)"
+  #     - "traefik.http.routers.nomad-frontend-public.entrypoints=web"
+  # nomad-api:
+  #   labels:
+  #     - "traefik.http.routers.nomad-api-public.rule=Host(`nomad-api.your-public-domain.com`)"
+  #     - "traefik.http.routers.nomad-api-public.entrypoints=web"

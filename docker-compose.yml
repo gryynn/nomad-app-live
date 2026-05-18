@@ -10,16 +10,15 @@ services:
     restart: unless-stopped
     networks:
       - traefik_proxy
+    # Single Traefik route, configured via env vars (see .env.example).
+    # Production deployments that need multiple routes (eg. local HTTPS +
+    # public HTTP via Cloudflare Tunnel) override this whole block in
+    # docker-compose.override.yml. The override is gitignored.
     labels:
       - "traefik.enable=true"
-      # Local (HTTPS via Traefik)
-      - "traefik.http.routers.nomad-frontend.rule=Host(`nomad.green-lab.local`)"
-      - "traefik.http.routers.nomad-frontend.entrypoints=websecure"
-      - "traefik.http.routers.nomad-frontend.tls=true"
-      # Public (Cloudflare Tunnel → HTTP)
-      - "traefik.http.routers.nomad-frontend-public.rule=Host(`nomad.mgdesign.cloud`)"
-      - "traefik.http.routers.nomad-frontend-public.entrypoints=web"
-      # Service port
+      - "traefik.http.routers.nomad-frontend.rule=Host(`${NOMAD_FRONTEND_HOST:-nomad.localhost}`)"
+      - "traefik.http.routers.nomad-frontend.entrypoints=${NOMAD_TRAEFIK_ENTRYPOINT:-web}"
+      - "traefik.http.routers.nomad-frontend.tls=${NOMAD_TRAEFIK_TLS:-false}"
       - "traefik.http.services.nomad-frontend.loadbalancer.server.port=80"
     depends_on:
       - nomad-api
@@ -41,14 +40,9 @@ services:
       - traefik_proxy
     labels:
       - "traefik.enable=true"
-      # Local (HTTPS via Traefik)
-      - "traefik.http.routers.nomad-api.rule=Host(`nomad-api.green-lab.local`)"
-      - "traefik.http.routers.nomad-api.entrypoints=websecure"
-      - "traefik.http.routers.nomad-api.tls=true"
-      # Public (Cloudflare Tunnel → HTTP)
-      - "traefik.http.routers.nomad-api-public.rule=Host(`nomad-api.mgdesign.cloud`)"
-      - "traefik.http.routers.nomad-api-public.entrypoints=web"
-      # Service port
+      - "traefik.http.routers.nomad-api.rule=Host(`${NOMAD_API_HOST:-nomad-api.localhost}`)"
+      - "traefik.http.routers.nomad-api.entrypoints=${NOMAD_TRAEFIK_ENTRYPOINT:-web}"
+      - "traefik.http.routers.nomad-api.tls=${NOMAD_TRAEFIK_TLS:-false}"
       - "traefik.http.services.nomad-api.loadbalancer.server.port=8400"
 
 networks:
