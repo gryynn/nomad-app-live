@@ -23,4 +23,7 @@ git pull origin functional-mvp --quiet
 docker compose --env-file backend/.env build --no-cache
 docker compose --env-file backend/.env up -d
 
+# Anti-saturation SSD : --no-cache laisse 2 images dangling par build (cf. incident 2026-05-08)
+docker image prune -f
+
 echo "[$(date)] Deploy complete"
