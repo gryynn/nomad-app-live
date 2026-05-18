@@ -31,8 +31,12 @@ services:
     container_name: nomad-api
     restart: unless-stopped
     env_file: backend/.env
+    # OSS-friendly default: store audio in ./data/audio-local (relative to repo).
+    # Override this path in docker-compose.override.yml for production deployments
+    # (e.g. bind to a large HDD or to a Nextcloud directory). The override file is
+    # gitignored — copy docker-compose.override.example.yml as a starting point.
     volumes:
-      - /mnt/ironwolf/nextcloud-data/data/lucidgr33n/files/medias/audio/recordings/PWA-local:/data/audio-local
+      - ./data/audio-local:/data/audio-local
     networks:
       - traefik_proxy
     labels:

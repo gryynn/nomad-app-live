@@ -23,3 +23,18 @@ logs/security/
 auto-claude/
 context.txt
 gitleaks-report.json
+
+# Local Docker Compose overrides (host-specific paths, traefik labels, ...)
+docker-compose.override.yml
+docker-compose.override.*.yml
+!docker-compose.override.example.yml
+
+# Local-only audio storage fallback (when no override exists)
+data/
+
+# Backup files generated during ops sessions
+*.bak
+*.bak-*
+
+# Deploy logs (rotated by hand, not by git)
+deploy.log

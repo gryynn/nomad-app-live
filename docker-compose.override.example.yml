@@ -1,0 +1,18 @@
+# Example local override — copy as `docker-compose.override.yml` and adapt to your setup.
+# Docker Compose auto-merges this file with docker-compose.yml (gitignored once renamed).
+#
+# Typical use cases:
+#   1. Point audio storage to a different disk/path on your host.
+#   2. Override Traefik labels for your own domain.
+#   3. Add a database/redis service that only your environment uses.
+
+services:
+  nomad-api:
+    # Example: bind audio storage to a large HDD instead of repo-local ./data/audio-local
+    volumes:
+      - /path/to/your/large/disk/nomad-audio:/data/audio-local
+
+  # Example: override Traefik labels for your own domain
+  # nomad-frontend:
+  #   labels:
+  #     - "traefik.http.routers.nomad-frontend-public.rule=Host(`nomad.your-domain.com`)"
