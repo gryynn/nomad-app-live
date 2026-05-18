@@ -1590,23 +1590,6 @@ function AppContent({ user, signOut }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {!offline.isOnline && <span className="offline-badge">hors-ligne</span>}
           {offline.pendingCount > 0 && <span className="pending-badge" title={`${offline.pendingCount} élément(s) en attente de sync`} onClick={async () => { const items = await offline.getAllPending(); setSyncPanelItems(items); setSyncPanelOpen(true); }}>{offline.pendingCount}</span>}
-          <button
-            onClick={toggleAutoTranscribe}
-            title={prefs.auto_transcribe ? "Auto-transcription ON (toutes nouvelles sessions sont transcrites automatiquement). Clic pour désactiver." : "Auto-transcription OFF (transcrire à la demande via le bouton ↻ par session). Clic pour réactiver."}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              fontSize: "0.7rem",
-              opacity: prefs.auto_transcribe ? 0.45 : 1,
-              color: prefs.auto_transcribe ? "inherit" : "#e09a3c",
-              padding: "2px 6px",
-              fontWeight: prefs.auto_transcribe ? 400 : 600,
-              letterSpacing: "0.04em",
-            }}
-          >
-            {prefs.auto_transcribe ? "auto-T" : "auto-T OFF"}
-          </button>
           <div className={`status-dot ${!offline.isOnline ? "offline" : loading ? "offline" : ""}`} title={!offline.isOnline ? "Hors-ligne" : loading ? "Chargement..." : "Connecté"} />
           <button
             onClick={signOut}
@@ -1758,10 +1741,53 @@ function AppContent({ user, signOut }) {
 
         {captureOpen && (
           <>
-            {/* Engine selector */}
+            {/* Engine selector + auto-transcribe toggle */}
             {!isRecording && !showReview && (
               <div style={{ marginBottom: 12 }}>
-                <label>Moteur</label>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <label style={{ margin: 0 }}>Moteur</label>
+                  <button
+                    type="button"
+                    onClick={toggleAutoTranscribe}
+                    title={prefs.auto_transcribe
+                      ? "Transcription automatique : ON. Toute nouvelle session sera transcrite. Clic pour désactiver."
+                      : "Transcription automatique : OFF. Les nouvelles sessions sont sauvegardées sans transcription. Clic sur ↻ par session pour transcrire à la demande."}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "4px 10px 4px 4px",
+                      borderRadius: 999,
+                      border: `1.5px solid ${prefs.auto_transcribe ? "#3aaf7c" : "#cc6b3c"}`,
+                      background: prefs.auto_transcribe ? "rgba(58,175,124,0.12)" : "rgba(204,107,60,0.12)",
+                      color: prefs.auto_transcribe ? "#3aaf7c" : "#cc6b3c",
+                      cursor: "pointer",
+                      fontSize: "0.72rem",
+                      fontWeight: 600,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      lineHeight: 1,
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: prefs.auto_transcribe ? "flex-end" : "flex-start",
+                        width: 26,
+                        height: 14,
+                        borderRadius: 999,
+                        background: prefs.auto_transcribe ? "#3aaf7c" : "#cc6b3c",
+                        padding: 2,
+                        transition: "background 120ms",
+                      }}
+                    >
+                      <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#fff" }} />
+                    </span>
+                    Auto-transcription {prefs.auto_transcribe ? "ON" : "OFF"}
+                  </button>
+                </div>
                 <div className="engine-row">
                   <button
                     className={`engine-chip ${selectedEngine === "auto" ? "selected" : ""}`}
