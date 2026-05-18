@@ -100,7 +100,10 @@ async def list_sessions(
     try:
         params = {
             "select": "*",
-            "order": "created_at.desc",
+            # Sort by `recorded_at` (when the audio was actually recorded) instead of
+            # `created_at` (when the DB row was inserted, which can lag for S26 imports).
+            # `nullslast` keeps the 3 sessions missing a recorded_at at the bottom.
+            "order": "recorded_at.desc.nullslast,created_at.desc",
             "limit": limit,
             "offset": offset,
             "user_id": f"eq.{user['id']}",
