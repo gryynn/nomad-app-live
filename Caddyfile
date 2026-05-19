@@ -1,0 +1,18 @@
+# NOMAD Caddyfile — activated by `docker compose --profile caddy up -d`.
+#
+# Both hostnames default to *.localhost (Caddy issues an internal cert that
+# you accept once on each device). Override with NOMAD_FRONTEND_HOST and
+# NOMAD_API_HOST in .env for real domains; Caddy will fetch Let's Encrypt
+# certs automatically.
+
+{
+  email {$ACME_EMAIL:-admin@example.com}
+}
+
+{$NOMAD_FRONTEND_HOST:nomad.localhost} {
+  reverse_proxy nomad-frontend:80
+}
+
+{$NOMAD_API_HOST:nomad-api.localhost} {
+  reverse_proxy nomad-api:8400
+}

@@ -1,27 +1,54 @@
-# Example local override — copy as `docker-compose.override.yml` and adapt to your setup.
-# Docker Compose auto-merges this file with docker-compose.yml (gitignored once renamed).
+# Example local override — copy as `docker-compose.override.yml` and adapt
+# to your setup. Docker Compose auto-merges this file with
+# docker-compose.yml (gitignored once renamed).
 #
-# Typical use cases:
-#   1. Point audio storage to a different disk/path on your host.
-#   2. Add a second Traefik route (e.g. local HTTPS + public HTTP via Cloudflare).
-#   3. Add a database/redis service that only your environment uses.
+# 3 typical scenarios are covered. Pick the one that matches your homelab.
 
 services:
-  # 1. Point audio storage to a large HDD instead of repo-local ./data/audio-local.
-  #    Comment out if you're happy with the default ./data path.
+  # ── 1. Audio on a different disk ───────────────────────────────────
+  # Replace the default ./data/audio-local bind with a path on your large
+  # HDD or your Nextcloud root (so audio is backed up + cross-device).
   # nomad-api:
   #   volumes:
   #     - /path/to/your/large/disk/nomad-audio:/data/audio-local
 
-  # 2. Add a second Traefik route alongside the env-driven one from docker-compose.yml.
-  #    The base file already gives you one route on $NOMAD_FRONTEND_HOST / $NOMAD_API_HOST;
-  #    use this if you need a second one (eg. a public domain through Cloudflare Tunnel
-  #    in addition to your local HTTPS one).
+  # ── 2. Traefik upstream (no Caddy profile) ─────────────────────────
+  # If you already run Traefik with its own external network, attach the
+  # services to it and label them. The base compose's `nomad` network
+  # keeps the two services talking to each other; Traefik just needs the
+  # extra network on the public-facing service.
   # nomad-frontend:
+  #   ports: []   # don't bind 8080:80 — Traefik handles ingress
+  #   networks: [nomad, traefik_proxy]
   #   labels:
-  #     - "traefik.http.routers.nomad-frontend-public.rule=Host(`nomad.your-public-domain.com`)"
-  #     - "traefik.http.routers.nomad-frontend-public.entrypoints=web"
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.nomad-frontend.rule=Host(`nomad.example.com`)"
+  #     - "traefik.http.routers.nomad-frontend.entrypoints=websecure"
+  #     - "traefik.http.routers.nomad-frontend.tls=true"
+  #     - "traefik.http.services.nomad-frontend.loadbalancer.server.port=80"
   # nomad-api:
+  #   ports: []
+  #   networks: [nomad, traefik_proxy]
   #   labels:
-  #     - "traefik.http.routers.nomad-api-public.rule=Host(`nomad-api.your-public-domain.com`)"
-  #     - "traefik.http.routers.nomad-api-public.entrypoints=web"
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.nomad-api.rule=Host(`nomad-api.example.com`)"
+  #     - "traefik.http.routers.nomad-api.entrypoints=websecure"
+  #     - "traefik.http.routers.nomad-api.tls=true"
+  #     - "traefik.http.services.nomad-api.loadbalancer.server.port=8400"
+
+  # ── 3. Cloudflare Tunnel sidecar ───────────────────────────────────
+  # Adds a `cloudflared` container that exposes your local frontend +
+  # api on a public *.trycloudflare.com URL — no port forwarding, no
+  # DNS work, free.
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   restart: unless-stopped
+  #   command: tunnel --no-autoupdate run
+  #   environment:
+  #     - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+  #   networks: [nomad]
+
+# Add the external network here when you go with scenario 2.
+# networks:
+#   traefik_proxy:
+#     external: true

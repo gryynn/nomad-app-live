@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext, createContext, useCallback } from "react";
+import { supabase } from "../lib/supabase.js";
 
 const AuthContext = createContext(null);
 const TOKEN_KEY = "nomad_token";
@@ -51,17 +52,55 @@ export function AuthProvider({ children }) {
     setLoading(false);
   }, []);
 
+  // Legacy OIDC path (PocketID). Kept for my GREEN-LAB prod.
   const signIn = useCallback(() => {
     window.location.href = "/api/auth/login";
   }, []);
 
+  // Apply a Supabase session to the local app state.
+  const applySupabaseSession = useCallback((session) => {
+    if (!session?.access_token) return;
+    localStorage.setItem(TOKEN_KEY, session.access_token);
+    const u = session.user;
+    setUser({ id: u?.id, email: u?.email || "" });
+  }, []);
+
+  const signInWithPassword = useCallback(async (email, password) => {
+    if (!supabase) throw new Error("Supabase non configuré côté frontend (VITE_SUPABASE_*).");
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    applySupabaseSession(data.session);
+  }, [applySupabaseSession]);
+
+  const signUpWithPassword = useCallback(async (email, password) => {
+    if (!supabase) throw new Error("Supabase non configuré côté frontend (VITE_SUPABASE_*).");
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) throw error;
+    // If email confirm is required by the Supabase project, no session yet.
+    if (data.session) applySupabaseSession(data.session);
+    return data;
+  }, [applySupabaseSession]);
+
+  const sendMagicLink = useCallback(async (email) => {
+    if (!supabase) throw new Error("Supabase non configuré côté frontend (VITE_SUPABASE_*).");
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin },
+    });
+    if (error) throw error;
+  }, []);
+
   const signOut = useCallback(() => {
+    if (supabase) supabase.auth.signOut().catch(() => {});
     localStorage.removeItem(TOKEN_KEY);
     setUser(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{
+      user, loading,
+      signIn, signInWithPassword, signUpWithPassword, sendMagicLink, signOut,
+    }}>
       {children}
     </AuthContext.Provider>
   );

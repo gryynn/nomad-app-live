@@ -40,12 +40,16 @@ function formatTimer(ms) {
 const TECHNICAL_TITLE_RE = /^(live_|rec_|TX01_MIC|[a-f0-9]{8}-[a-f0-9]{4}-|\d{6}_\d{6}$|\d{8}_\d{6})/;
 
 function prettifyTitle(s) {
-  const raw = (s && s.title) || "";
-  if (raw && !TECHNICAL_TITLE_RE.test(raw)) return raw;
-  // Build a fallback from the input mode + record date.
-  const ts = s && (s.recorded_at || s.created_at);
+  // Defensive: only synthesize a fallback when there's literally no usable
+  // title. A non-empty, non-technical title always wins, including stuff like
+  // "Voice: 5ème mois" that the watcher prefixes.
+  if (!s) return "Session";
+  const raw = typeof s.title === "string" ? s.title.trim() : "";
+  if (raw.length > 0 && !TECHNICAL_TITLE_RE.test(raw)) return raw;
+  if (raw.length > 0 && raw.length < 4) return raw; // single-char placeholders kept
+  const ts = s.recorded_at || s.created_at;
   const when = ts ? new Date(ts).toLocaleDateString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-  const modeLabel = { live: "LIVE", rec: "REC", import: "Import", paste: "Paste", meet: "MEET" }[s && s.input_mode] || "Session";
+  const modeLabel = { live: "LIVE", rec: "REC", import: "Import", paste: "Paste", meet: "MEET" }[s.input_mode] || "Session";
   return when ? `${modeLabel} · ${when}` : modeLabel;
 }
 
