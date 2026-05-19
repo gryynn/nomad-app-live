@@ -7,6 +7,20 @@ function getAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// Cached server config. The frontend needs to know which storage driver the
+// backend uses so it can decide whether direct-to-Supabase uploads are safe.
+// Without this gate, /upload/complete would record a "local" storage_key for
+// a file that actually lives in Supabase Storage → 404 on /api/audio later.
+let _serverConfigPromise = null;
+export const getServerConfig = () => {
+  if (!_serverConfigPromise) {
+    _serverConfigPromise = fetch(`${BASE}/api/config`)
+      .then((r) => (r.ok ? r.json() : { storage_driver: "supabase" }))
+      .catch(() => ({ storage_driver: "supabase" }));
+  }
+  return _serverConfigPromise;
+};
+
 function getCurrentUserId() {
   const token = localStorage.getItem("nomad_token");
   if (!token) return "anonymous";
@@ -201,8 +215,14 @@ export const uploadAudio = async (file, onProgress) => {
   const storagePath = `${userId}/${sessionId}.${ext}`;
   console.log(`[UPLOAD] ${file.name} (${sizeMB} MB) → ${storagePath}`);
 
+  // Direct-to-Supabase strategies are only safe when the backend's storage
+  // driver IS Supabase. With any other driver (local/nextcloud/s3), the audio
+  // ends up in Supabase Storage but the DB row claims it's local → 404.
+  const { storage_driver } = await getServerConfig();
+  const canUseSupabaseDirect = storage_driver === "supabase";
+
   // ── Strategy 1: Direct XHR to Supabase (with progress) ──
-  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  if (canUseSupabaseDirect && SUPABASE_URL && SUPABASE_ANON_KEY) {
     try {
       await uploadDirectXHR(file, storagePath, contentType, onProgress);
       // Create session record via backend

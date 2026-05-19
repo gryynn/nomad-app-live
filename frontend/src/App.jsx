@@ -912,7 +912,9 @@ function AppContent({ user, signOut }) {
       startTimeRef.current = Date.now();
 
       // Progressive chunk save: init
-      const recId = "rec_" + Date.now();
+      // Use a UUID so it can be inserted directly into app_nomad.sessions.id
+      // (which is UUID-typed). /assemble previously failed with a non-UUID id.
+      const recId = crypto.randomUUID();
       recordingIdRef.current = recId;
       flushSeqRef.current = 0;
       recNotesTextRef.current = "";

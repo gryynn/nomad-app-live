@@ -60,6 +60,14 @@ async def health():
     return {"status": "ok", "service": "nomad-api"}
 
 
+@app.get("/api/config")
+async def public_config():
+    """Public runtime config the frontend needs to know — storage driver name
+    so uploadAudio knows whether direct-to-Supabase strategies are usable."""
+    from app.services.storage import get_storage_backend
+    return {"storage_driver": get_storage_backend().name}
+
+
 @app.get("/api/auth/me")
 async def auth_me(user=Depends(get_current_user)):
     return {"user_id": user["id"], "email": user["email"]}
