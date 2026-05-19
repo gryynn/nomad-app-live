@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Query
+import asyncio
 import httpx
 from app.models.schemas import TranscribeRequest
 from app.auth import get_current_user
@@ -142,6 +143,28 @@ async def process_transcription(
                 )
         except Exception:
             pass  # Best-effort error storage
+
+
+async def enqueue_auto_transcribe(session_id: str, audio_url: str, user_id: str) -> None:
+    """Internal helper used by /upload/assemble after the audio is on disk.
+
+    Mirrors the auto-gate logic of POST /transcribe?auto=true: respects the
+    user's `auto_transcribe` pref and uses their resolved API keys, fires the
+    background task without blocking the caller.
+    """
+    prefs = await get_user_preferences(user_id)
+    if not prefs.auto_transcribe:
+        print(f"[TRANSCRIBE] auto-skip session={session_id} (user auto_transcribe=false)")
+        return
+
+    groq_key = await resolve_api_key(user_id, "groq")
+    deepgram_key = await resolve_api_key(user_id, "deepgram")
+
+    job_id = queue_manager.add_job(session_id, "auto")
+    asyncio.create_task(
+        process_transcription(job_id, session_id, "auto", audio_url, groq_key, deepgram_key)
+    )
+    print(f"[TRANSCRIBE] auto-enqueued session={session_id} job={job_id}")
 
 
 @router.post("/{session_id}")

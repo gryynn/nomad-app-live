@@ -334,6 +334,16 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
                 )
             print(f"[ASSEMBLE] Session {session_id} stored on driver={backend.name}")
 
+            # 4b. Auto-trigger transcription (respects user's auto_transcribe pref).
+            # Without this the session would sit in 'uploaded' forever — the
+            # frontend used to bail out at this point, expecting the user to
+            # tap "Re-transcrire" manually. Lazy-imported to avoid a cycle.
+            try:
+                from app.routers.transcribe import enqueue_auto_transcribe
+                await enqueue_auto_transcribe(session_id, audio_url, user_id)
+            except Exception as e:
+                print(f"[ASSEMBLE] auto-transcribe enqueue failed for {session_id}: {e}")
+
             # 5. Cleanup chunks via the storage backend
             for i in range(chunk_count):
                 chunk_key = _key("chunks", session_id, f"chunk_{str(i).zfill(4)}.webm")
