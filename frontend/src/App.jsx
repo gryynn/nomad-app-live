@@ -33,6 +33,22 @@ function formatTimer(ms) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+// Patterns that the various ingest paths leave behind when no human-friendly
+// title was set: bare UUIDs, `rec_<uuid>`/`live_<ts>`, DJI Mic TX0…, and the
+// Voice Recorder "YYMMDD_HHMMSS" / Watch "YYYYMMDD_HHMMSS" timestamps. These
+// look like "no title" to the user, so we synthesize a readable label.
+const TECHNICAL_TITLE_RE = /^(live_|rec_|TX01_MIC|[a-f0-9]{8}-[a-f0-9]{4}-|\d{6}_\d{6}$|\d{8}_\d{6})/;
+
+function prettifyTitle(s) {
+  const raw = (s && s.title) || "";
+  if (raw && !TECHNICAL_TITLE_RE.test(raw)) return raw;
+  // Build a fallback from the input mode + record date.
+  const ts = s && (s.recorded_at || s.created_at);
+  const when = ts ? new Date(ts).toLocaleDateString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  const modeLabel = { live: "LIVE", rec: "REC", import: "Import", paste: "Paste", meet: "MEET" }[s && s.input_mode] || "Session";
+  return when ? `${modeLabel} · ${when}` : modeLabel;
+}
+
 function inputModeEmoji(mode) {
   const map = { rec: "🎙️", live: "📡", import: "📁", paste: "📋" };
   return map[mode] || "📄";
@@ -2478,7 +2494,7 @@ function AppContent({ user, signOut }) {
                       />
                     ) : (
                       <div className="title" onDoubleClick={(e) => { e.stopPropagation(); setEditingTitleId(s.id); setEditingTitleValue(s.title || ""); }}>
-                        {s.title || "(sans titre)"}
+                        {prettifyTitle(s)}
                       </div>
                     )}
                     <div className="meta">
@@ -2803,8 +2819,20 @@ function AppContent({ user, signOut }) {
                       <div style={{ marginTop: 12 }}>
                         <label>Marks</label>
                         {expandedSession.marks.map((m, i) => (
-                          <div key={i} style={{ fontSize: 12, color: "var(--text-soft)" }}>
-                            Mark @ {formatTimer(m.time)} {m.label && `— ${m.label}`}
+                          <div
+                            key={i}
+                            onClick={() => {
+                              if (audioPlayerRef.current) {
+                                audioPlayerRef.current.currentTime = m.time;
+                                audioPlayerRef.current.play();
+                              }
+                            }}
+                            style={{ fontSize: 12, color: "var(--text-soft)", cursor: "pointer", padding: "2px 0" }}
+                            title="Cliquer pour aller à ce moment"
+                          >
+                            <span style={{ color: "var(--accent)", fontFamily: "monospace" }}>{formatTimer(m.time)}</span>
+                            {m.wall && <span style={{ marginLeft: 6, opacity: 0.6 }}>· {m.wall}</span>}
+                            {m.label && <span style={{ marginLeft: 6 }}>— {m.label}</span>}
                           </div>
                         ))}
                       </div>
