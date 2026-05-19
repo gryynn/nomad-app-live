@@ -33,9 +33,7 @@ ALLOWED_KEY_NAMES = {"groq", "deepgram", "openai"}
 
 
 class Preferences(BaseModel):
-    # Default OFF for new users (open-instance friendliness). Existing users
-    # keep whatever they had — this default only applies when no row exists.
-    auto_transcribe: bool = False
+    auto_transcribe: bool = True
     preferred_engine: str = "auto"
     wynona_endpoint: Optional[str] = None
     # api_keys is **write-only** from the client. Reads never include the
@@ -45,7 +43,7 @@ class Preferences(BaseModel):
 
 
 class PreferencesPublicView(BaseModel):
-    auto_transcribe: bool = False
+    auto_transcribe: bool = True
     preferred_engine: str = "auto"
     wynona_endpoint: Optional[str] = None
     api_keys_set: list[str] = Field(default_factory=list)
@@ -72,9 +70,7 @@ async def get_user_preferences(user_id: str) -> Preferences:
     to use. Not exposed via HTTP."""
     row = await _read_row(user_id)
     return Preferences(
-        # Absent row → False (open-instance default). Existing rows keep
-        # whatever the user persisted, including legacy `true` values.
-        auto_transcribe=row.get("auto_transcribe", False),
+        auto_transcribe=row.get("auto_transcribe", True),
         preferred_engine=row.get("preferred_engine") or "auto",
         wynona_endpoint=row.get("wynona_endpoint"),
         api_keys=row.get("api_keys") or {},
