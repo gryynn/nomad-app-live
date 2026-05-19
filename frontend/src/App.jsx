@@ -68,6 +68,30 @@ function loadDraft() {
 
 function clearDraft() { localStorage.removeItem(DRAFT_KEY); }
 
+// Light / dark toggle. Sets data-theme on <html>; mvp.css ships CSS-variable
+// overrides under [data-theme="light"]. Preference persists in localStorage.
+function ThemeToggleButton() {
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === "undefined") return "oled";
+    return localStorage.getItem("nomad-theme") || "oled";
+  });
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "light") root.dataset.theme = "light";
+    else root.removeAttribute("data-theme");
+    try { localStorage.setItem("nomad-theme", theme); } catch (_) {}
+  }, [theme]);
+  return (
+    <button
+      onClick={() => setTheme((m) => (m === "light" ? "oled" : "light"))}
+      title="Basculer thème clair / sombre"
+      style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.85rem", opacity: 0.6, color: "inherit", padding: "2px 4px" }}
+    >
+      {theme === "light" ? "🌙" : "☀️"}
+    </button>
+  );
+}
+
 // ═══════════════════════════════════════════════════════
 // APP
 // ═══════════════════════════════════════════════════════
@@ -1591,6 +1615,7 @@ function AppContent({ user, signOut }) {
           {!offline.isOnline && <span className="offline-badge">hors-ligne</span>}
           {offline.pendingCount > 0 && <span className="pending-badge" title={`${offline.pendingCount} élément(s) en attente de sync`} onClick={async () => { const items = await offline.getAllPending(); setSyncPanelItems(items); setSyncPanelOpen(true); }}>{offline.pendingCount}</span>}
           <div className={`status-dot ${!offline.isOnline ? "offline" : loading ? "offline" : ""}`} title={!offline.isOnline ? "Hors-ligne" : loading ? "Chargement..." : "Connecté"} />
+          <ThemeToggleButton />
           <button
             onClick={signOut}
             title={user.email}

@@ -15,6 +15,22 @@
   --radius: 8px;
 }
 
+/* Light theme — toggled via document.documentElement.dataset.theme = "light".
+   The toggle button in the header writes this attribute + persists to
+   localStorage. Variables map 1:1 with the dark defaults above. */
+[data-theme="light"] {
+  --bg: #f5f4f0;
+  --surface: #ffffff;
+  --surface2: #ecebe6;
+  --text: #1a1a1a;
+  --text-soft: #6b6b6b;
+  --accent: #000000;
+  --red: #c33;
+  --green: #2a8049;
+  --orange: #b07000;
+  --border: #d8d5cd;
+}
+
 html, body {
   background: var(--bg);
   color: var(--text);
