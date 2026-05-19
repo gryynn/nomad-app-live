@@ -3,44 +3,57 @@
 Lets agents (Claude Desktop, Cursor, Hermes…) drive NOMAD sessions through
 the [Model Context Protocol](https://modelcontextprotocol.io).
 
-## Status
+## Tools
 
-V0 scaffold. The tool surface area is defined below; the actual MCP server
-binary is implemented as a thin Python wrapper around the NOMAD REST API
-(same auth model as the PWA — Bearer token).
+| Tool                                  | Maps to                                  |
+|---------------------------------------|------------------------------------------|
+| `list_sessions(limit, status, …)`     | `GET  /api/sessions`                     |
+| `get_session(session_id)`             | `GET  /api/sessions/{id}`                |
+| `update_session(id, patch)`           | `PUT  /api/sessions/{id}`                |
+| `add_note(id, content)`               | `POST /api/sessions/{id}/notes`          |
+| `add_mark(id, time_ms, label)`        | `POST /api/sessions/{id}/marks`          |
+| `list_tags()`                         | `GET  /api/tags`                         |
+| `set_tags(id, tag_names)`             | resolves names → ids + sets the set      |
+| `transcribe(id, engine)`              | `POST /api/transcribe/{id}`              |
+| `list_attachments(id)`                | `GET  /api/sessions/{id}/attachments`    |
 
-## Planned tools
-
-| Tool                              | Maps to                                          |
-|-----------------------------------|--------------------------------------------------|
-| `list_sessions(limit, filter)`    | `GET  /api/sessions`                             |
-| `get_session(session_id)`         | `GET  /api/sessions/{id}`                        |
-| `update_session(id, patch)`       | `PUT  /api/sessions/{id}`                        |
-| `add_note(id, content)`           | `POST /api/sessions/{id}/notes`                  |
-| `add_mark(id, time, label)`       | `POST /api/sessions/{id}/marks`                  |
-| `set_tags(id, tag_names)`         | resolves names → ids, then `setSessionTags`      |
-| `transcribe(id, engine?)`         | `POST /api/transcribe/{id}`                      |
-| `search(query, since?, tag?)`     | `GET  /api/sessions?search=&tag=&created_after=` |
-| `list_attachments(id)`            | `GET  /api/sessions/{id}/attachments`            |
-
-## Running
+## Install
 
 ```bash
-# Local dev (TBD)
 cd mcp
-uv run nomad-mcp-server
+uv pip install -e .
+# or: pip install -e .
 ```
 
-The server reads `NOMAD_API_URL` + `NOMAD_API_TOKEN` from env. The token is
-the same Bearer (Supabase session access_token or PocketID-issued JWT) the
-PWA uses.
+## Run
 
-## Auth model
+```bash
+NOMAD_API_URL=https://nomad-api.mgdesign.cloud \
+NOMAD_API_TOKEN=<your-bearer-token> \
+python server.py
+```
 
-Single-user for V0 — the agent operates as Martin. Multi-user comes when
-NOMAD itself opens to Jeanne + collaborators (the table already has user_id
-columns and RLS, so the underlying REST endpoints are already scoped).
+The server speaks MCP over stdio. Wire it into Claude Desktop with:
 
-## Backlog item
+```json
+{
+  "mcpServers": {
+    "nomad": {
+      "command": "python",
+      "args": ["/home/greenm/docker/nomad/mcp/server.py"],
+      "env": {
+        "NOMAD_API_URL": "https://nomad-api.mgdesign.cloud",
+        "NOMAD_API_TOKEN": "<bearer>"
+      }
+    }
+  }
+}
+```
+
+`NOMAD_API_TOKEN` is the same Bearer (Supabase access_token or
+PocketID-issued JWT) the PWA uses. Single-user for V0 — the agent operates
+as the token's owner.
+
+## Backlog
 
 `eb6ee127` in `app_nomad_dev.backlog`.

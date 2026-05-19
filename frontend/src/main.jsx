@@ -1,17 +1,21 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { AuthProvider } from "./hooks/useAuth.jsx";
-import { ThemeProvider } from "./hooks/useTheme.jsx";
 import App from "./App.jsx";
 import "./styles/mvp.css";
 
+// Restore the persisted light/dark preference before first paint to avoid
+// a flash. App.jsx's ThemeToggleButton owns the toggle from here on.
+try {
+  const saved = localStorage.getItem("nomad-theme");
+  if (saved === "light") document.documentElement.dataset.theme = "light";
+} catch (_) {/* ignore */}
+
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <ThemeProvider>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </ThemeProvider>
+    <AuthProvider>
+      <App />
+    </AuthProvider>
   </StrictMode>
 );
 

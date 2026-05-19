@@ -1,67 +1,190 @@
-"""WebSocket proxy for true-streaming transcription (Deepgram nova-2).
+"""WebSocket proxy: client <-> backend <-> Deepgram nova-2 real-time STT.
 
-Status: V0 scaffold — accepts a client WS, forwards binary audio frames to
-Deepgram's WS endpoint, forwards interim + final JSON results back. The full
-LIVE pipeline integration (Flutter / PWA send raw PCM frames, recover from
-disconnect, merge interim with final, store session.transcript on close)
-lives in follow-up commits.
+Client opens `ws://nomad-api/api/transcribe/stream/{session_id}` with the
+usual Bearer auth (passed as query string `?token=…` since browsers can't set
+WebSocket headers natively). The backend opens a parallel WS to Deepgram and
+bridges frames in both directions:
 
-Design notes:
-  - Client opens  ws://nomad-api/api/transcribe/stream/{session_id}
-  - Server side  : connect to wss://api.deepgram.com/v1/listen with the keys
-                   from DEEPGRAM_API_KEY env var (already present).
-  - Audio frame  : raw PCM16 16kHz mono, ~100ms buffers. Encoder side TBD
-                   (PWA = MediaRecorder('audio/webm') needs PCM extraction,
-                   Flutter = `record` can output PCM directly).
-  - Result frame : forward Deepgram JSON verbatim. The client renders
-                   `is_final=false` as live preview, `is_final=true` as
-                   committed segments.
+  Client → backend  : raw binary audio (PCM16 16 kHz mono recommended) +
+                      optional control messages (type=close, type=keepalive).
+  Backend → Deepgram: same binary frames untouched (Deepgram auto-detects
+                      the format from query params).
+  Deepgram → backend: JSON `Results` / `SpeechStarted` / `UtteranceEnd` /
+                      `Metadata` frames.
+  Backend → client  : same JSON forwarded verbatim so the client can render
+                      `is_final=false` as live preview and append
+                      `is_final=true` segments to the session transcript.
 
-The placeholder below proves the routing wiring; the Deepgram fan-out is
-gated behind `STREAMING_ENABLED=true` until the encoder side is ready.
+When the client disconnects we flush Deepgram and store the concatenated
+final transcript on `app_nomad.sessions.transcript` via Supabase REST, so a
+LIVE recording that survives the round-trip ends up with a transcript even
+if the client crashed mid-stream.
+
+Gated behind `STREAMING_ENABLED=true` in backend/.env until the client side
+encoders are shipped.
 """
 from __future__ import annotations
 
-import os
+import asyncio
 import json
+import os
+from typing import Optional
 
+import httpx
+import websockets
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from app.auth import APP_JWT_SECRET
+from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+import jwt
 
 
 router = APIRouter(prefix="/transcribe", tags=["streaming"])
 
 STREAMING_ENABLED = os.environ.get("STREAMING_ENABLED", "false").lower() == "true"
+DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
+DEEPGRAM_WS_URL = (
+    "wss://api.deepgram.com/v1/listen"
+    "?model=nova-2"
+    "&language=fr"
+    "&punctuate=true"
+    "&interim_results=true"
+    "&smart_format=true"
+    "&encoding=linear16"
+    "&sample_rate=16000"
+    "&channels=1"
+)
+
+SUPABASE_HEADERS = {
+    "apikey": SUPABASE_SERVICE_KEY,
+    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=minimal",
+    "Accept-Profile": "app_nomad",
+    "Content-Profile": "app_nomad",
+}
+
+
+def _verify_token(token: Optional[str]) -> Optional[dict]:
+    if not token:
+        return None
+    try:
+        return jwt.decode(token, APP_JWT_SECRET, algorithms=["HS256"])
+    except jwt.InvalidTokenError:
+        pass
+    # Fall back to Supabase JWT secret (mobile Bearer = Supabase access_token).
+    supabase_secret = os.environ.get("SUPABASE_JWT_SECRET", "")
+    if supabase_secret:
+        try:
+            return jwt.decode(
+                token, supabase_secret, algorithms=["HS256"], audience="authenticated"
+            )
+        except jwt.InvalidTokenError:
+            pass
+    return None
+
+
+async def _persist_transcript(session_id: str, text: str) -> None:
+    if not text.strip():
+        return
+    async with httpx.AsyncClient(timeout=10) as client:
+        try:
+            await client.patch(
+                f"{SUPABASE_URL}/rest/v1/sessions?id=eq.{session_id}",
+                headers=SUPABASE_HEADERS,
+                json={
+                    "transcript": text.strip(),
+                    "status": "transcribed",
+                    "engine_used": "deepgram-stream",
+                },
+            )
+        except Exception as e:
+            print(f"[STREAM] persist failed for {session_id}: {e}")
 
 
 @router.websocket("/stream/{session_id}")
 async def stream(websocket: WebSocket, session_id: str):
+    # Auth via query string — browsers can't set headers on the WS handshake.
+    token = websocket.query_params.get("token")
+    user = _verify_token(token)
+    if not user:
+        await websocket.close(code=4401)
+        return
+
     await websocket.accept()
-    if not STREAMING_ENABLED:
+
+    if not STREAMING_ENABLED or not DEEPGRAM_API_KEY:
         await websocket.send_json({
             "type": "error",
             "code": "streaming_disabled",
-            "detail": "Deepgram WS proxy is opt-in. Set STREAMING_ENABLED=true in backend/.env once the encoder side is ready.",
+            "detail": "Set STREAMING_ENABLED=true + DEEPGRAM_API_KEY in backend/.env",
         })
         await websocket.close(code=1011)
         return
 
+    finals: list[str] = []
+
     try:
-        # TODO(deepgram-fanout): open wss://api.deepgram.com/v1/listen and
-        # bridge frames in both directions. This first version just echoes
-        # so we can exercise the wiring + auth from the clients.
-        while True:
-            msg = await websocket.receive()
-            if "bytes" in msg and msg["bytes"]:
-                await websocket.send_json({
-                    "type": "echo_binary",
-                    "size": len(msg["bytes"]),
-                    "session_id": session_id,
-                })
-            elif "text" in msg and msg["text"]:
+        async with websockets.connect(
+            DEEPGRAM_WS_URL,
+            additional_headers={"Authorization": f"Token {DEEPGRAM_API_KEY}"},
+            max_size=2**24,
+        ) as dg:
+            async def client_to_dg():
                 try:
-                    payload = json.loads(msg["text"])
-                except Exception:
-                    payload = {"raw": msg["text"]}
-                await websocket.send_json({"type": "echo_text", "payload": payload})
+                    while True:
+                        msg = await websocket.receive()
+                        if msg.get("type") == "websocket.disconnect":
+                            break
+                        if "bytes" in msg and msg["bytes"]:
+                            await dg.send(msg["bytes"])
+                        elif "text" in msg and msg["text"]:
+                            # Control messages from the client (e.g. flush).
+                            try:
+                                payload = json.loads(msg["text"])
+                                if payload.get("type") == "close":
+                                    break
+                            except Exception:
+                                pass
+                except WebSocketDisconnect:
+                    pass
+                finally:
+                    # Tell Deepgram we're done so it returns any final frames.
+                    try:
+                        await dg.send(json.dumps({"type": "CloseStream"}))
+                    except Exception:
+                        pass
+
+            async def dg_to_client():
+                async for raw in dg:
+                    try:
+                        payload = json.loads(raw)
+                    except Exception:
+                        continue
+                    alt = (
+                        payload.get("channel", {})
+                        .get("alternatives", [{}])[0]
+                        .get("transcript")
+                    )
+                    if payload.get("is_final") and alt:
+                        finals.append(alt)
+                    try:
+                        await websocket.send_json(payload)
+                    except Exception:
+                        return
+
+            await asyncio.gather(client_to_dg(), dg_to_client())
     except WebSocketDisconnect:
-        return
+        pass
+    except Exception as e:
+        try:
+            await websocket.send_json({"type": "error", "detail": str(e)})
+        except Exception:
+            pass
+    finally:
+        # Persist whatever we got, even on early disconnect.
+        await _persist_transcript(session_id, " ".join(finals))
+        try:
+            await websocket.close()
+        except Exception:
+            pass

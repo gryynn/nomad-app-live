@@ -1,8 +1,4 @@
-import { useTheme } from "../hooks/useTheme.jsx";
-
 export default function Login({ onLogin }) {
-  const { theme } = useTheme();
-
   return (
     <div
       style={{
@@ -10,7 +6,7 @@ export default function Login({ onLogin }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: theme.bg,
+        background: "var(--bg)",
         padding: "1rem",
       }}
     >
@@ -30,7 +26,7 @@ export default function Login({ onLogin }) {
             letterSpacing: "0.45em",
             fontSize: "1.5rem",
             fontWeight: 300,
-            color: theme.accent,
+            color: "var(--accent)",
           }}
         >
           N O M A D
@@ -43,8 +39,8 @@ export default function Login({ onLogin }) {
             padding: "0.85rem",
             borderRadius: 8,
             border: "none",
-            background: theme.accent,
-            color: theme.bg,
+            background: "var(--accent)",
+            color: "var(--bg)",
             fontSize: "1rem",
             fontWeight: 600,
             cursor: "pointer",
@@ -57,7 +53,7 @@ export default function Login({ onLogin }) {
           style={{
             textAlign: "center",
             fontSize: "0.75rem",
-            color: theme.textSoft,
+            color: "var(--text-soft)",
           }}
         >
           v{typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "?"}
