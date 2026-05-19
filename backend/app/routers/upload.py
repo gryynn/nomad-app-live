@@ -18,6 +18,17 @@ from app.services.storage.supabase import SupabaseStorageBackend
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
+# Optional prefix prepended to every storage_key written by the backend.
+# Lets the deployer share a single mount root with sibling directories
+# (e.g. Voice Recorder/, Sounds/, Legacy/) without colliding. OSS default = none.
+STORAGE_KEY_PREFIX = (os.environ.get("STORAGE_KEY_PREFIX") or "").strip("/")
+
+
+def _key(*parts: str) -> str:
+    body = "/".join(p.strip("/") for p in parts if p)
+    return f"{STORAGE_KEY_PREFIX}/{body}" if STORAGE_KEY_PREFIX else body
+
+
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".webm", ".ogg", ".flac"}
 
 MIME_MAP = {
@@ -51,7 +62,10 @@ def _audio_url_for(session_id: str, storage_key: str) -> str:
     """
     backend = get_storage_backend()
     if isinstance(backend, SupabaseStorageBackend):
-        bucket_path = storage_key.split("/", 1)[1] if "/" in storage_key else storage_key
+        key = storage_key
+        if STORAGE_KEY_PREFIX and key.startswith(f"{STORAGE_KEY_PREFIX}/"):
+            key = key[len(STORAGE_KEY_PREFIX) + 1:]
+        bucket_path = key.split("/", 1)[1] if "/" in key else key
         return f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{bucket_path}"
     return f"{PUBLIC_BACKEND_URL}/api/audio/{session_id}"
 
@@ -140,7 +154,7 @@ async def upload_init(req: UploadInitRequest, user=Depends(get_current_user)):
             signed_data = resp.json()
             signed_url = f"{SUPABASE_URL}{signed_data['url']}"
 
-        storage_key = f"audio/{storage_path}"
+        storage_key = _key("audio", storage_path)
         return {
             "session_id": session_id,
             "storage_path": storage_path,
@@ -158,7 +172,7 @@ async def upload_init(req: UploadInitRequest, user=Depends(get_current_user)):
 @router.post("/complete")
 async def upload_complete(req: UploadCompleteRequest, user=Depends(get_current_user)):
     """Create session record after client has uploaded directly to storage."""
-    storage_key = f"audio/{req.storage_path}"
+    storage_key = _key("audio", req.storage_path)
     audio_url = _audio_url_for(req.session_id, storage_key)
 
     try:
@@ -204,8 +218,11 @@ async def upload_audio_legacy(file: UploadFile = File(...), user=Depends(get_cur
 
     session_id = str(uuid.uuid4())
     user_id = user["id"]
-    storage_key = f"audio/{user_id}/{session_id}{file_ext}"
+    storage_key = _key("audio", user_id, f"{session_id}{file_ext}")
     content_type = file.content_type or MIME_MAP.get(file_ext, "audio/mpeg")
+    # Use the source filename (sans extension) as the session title so imported
+    # recordings show up as "Voice memo 12" instead of "(sans titre)" in the UI.
+    default_title = Path(file.filename).stem if file.filename else ""
 
     try:
         file_content = await file.read()
@@ -227,6 +244,7 @@ async def upload_audio_legacy(file: UploadFile = File(...), user=Depends(get_cur
             session_data = {
                 "id": session_id,
                 "user_id": user_id,
+                "title": default_title,
                 "duration_seconds": 0,
                 "input_mode": "import",
                 "status": "uploaded",
@@ -265,7 +283,7 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
             # 1. Download all chunks via the storage backend
             chunk_files = []
             for i in range(chunk_count):
-                chunk_key = f"chunks/{session_id}/chunk_{str(i).zfill(4)}.webm"
+                chunk_key = _key("chunks", session_id, f"chunk_{str(i).zfill(4)}.webm")
                 try:
                     chunk_data = await backend.download(chunk_key)
                 except FileNotFoundError:
@@ -298,7 +316,7 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
             print(f"[ASSEMBLE] {chunk_count} chunks → {len(assembled_data) / 1024 / 1024:.1f} MB")
 
             # 3. Upload assembled file via the storage backend
-            storage_key = f"audio/{user_id}/{session_id}{ext}"
+            storage_key = _key("audio", user_id, f"{session_id}{ext}")
             await backend.upload(storage_key, assembled_data, content_type)
 
             # 4. Update session with audio_url + storage_key + status
@@ -318,7 +336,7 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
 
             # 5. Cleanup chunks via the storage backend
             for i in range(chunk_count):
-                chunk_key = f"chunks/{session_id}/chunk_{str(i).zfill(4)}.webm"
+                chunk_key = _key("chunks", session_id, f"chunk_{str(i).zfill(4)}.webm")
                 try:
                     await backend.delete(chunk_key)
                 except Exception:
@@ -357,7 +375,7 @@ async def upload_chunk(
         raise HTTPException(status_code=400, detail="Invalid chunk index")
 
     backend = get_storage_backend()
-    chunk_key = f"chunks/{session_id}/chunk_{idx:04d}.webm"
+    chunk_key = _key("chunks", session_id, f"chunk_{idx:04d}.webm")
     content_type = file.content_type or "audio/webm"
 
     try:
