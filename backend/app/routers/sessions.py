@@ -2,7 +2,7 @@ import httpx
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional, List
-from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY, PUBLIC_BACKEND_URL
 from app.auth import get_current_user
 from app.models.schemas import (
     SessionResponse,
@@ -167,6 +167,13 @@ async def list_sessions(
                     for s in sessions:
                         s["tags"] = tag_map.get(s["id"], [])
 
+            # Compute a virtual audio_url for sessions that only have a
+            # storage_key (post-2026-05-19 backfill + watcher-ingested rows).
+            # Clients still consume `audio_url` as-is, no change required.
+            for s in sessions:
+                if not s.get("audio_url") and s.get("storage_key"):
+                    s["audio_url"] = f"{PUBLIC_BACKEND_URL}/api/audio/{s['id']}"
+
             return sessions
     except httpx.HTTPStatusError as e:
         print(f"List sessions Supabase error: {e.response.status_code} {e.response.text}")
@@ -240,6 +247,10 @@ async def get_session(session_id: str, user=Depends(get_current_user)):
                 session["notes"] = []
 
             # marks is already a JSONB column on sessions — no separate fetch needed
+
+            # Virtual audio_url for sessions with storage_key only (see list_sessions).
+            if not session.get("audio_url") and session.get("storage_key"):
+                session["audio_url"] = f"{PUBLIC_BACKEND_URL}/api/audio/{session['id']}"
 
             return session
     except HTTPException:

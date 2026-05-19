@@ -7,7 +7,7 @@ from app.services.queue_manager import QueueManager
 from app.services.groq_service import GroqService, GroqFileTooLargeError
 from app.services.deepgram_service import DeepgramService
 from app.services.wynona_service import WynonaService
-from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY, DEEPGRAM_API_KEY
+from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY, DEEPGRAM_API_KEY, PUBLIC_BACKEND_URL
 
 router = APIRouter(prefix="/transcribe", tags=["transcribe"])
 
@@ -172,7 +172,7 @@ async def transcribe_session(
             resp = await client.get(
                 f"{BASE_URL}/sessions",
                 headers=HEADERS,
-                params={"id": f"eq.{session_id}", "user_id": f"eq.{user['id']}", "select": "id,audio_url"},
+                params={"id": f"eq.{session_id}", "user_id": f"eq.{user['id']}", "select": "id,audio_url,storage_key"},
             )
             if resp.status_code != 200:
                 raise HTTPException(status_code=500, detail="Failed to query session")
@@ -182,8 +182,14 @@ async def transcribe_session(
                 raise HTTPException(status_code=404, detail="Session not found")
 
             audio_url = rows[0].get("audio_url")
-            if not audio_url:
+            storage_key = rows[0].get("storage_key")
+            if not audio_url and not storage_key:
                 raise HTTPException(status_code=400, detail="Session has no audio file")
+            if not audio_url:
+                # Backfilled and watcher-ingested sessions store storage_key only.
+                # Route through the backend proxy — process_transcription will
+                # append a short-lived signed token before calling Groq/etc.
+                audio_url = f"{PUBLIC_BACKEND_URL}/api/audio/{session_id}"
 
     except HTTPException:
         raise
