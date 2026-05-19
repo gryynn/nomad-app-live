@@ -55,14 +55,16 @@ def _fake_httpx_post(status_code: int = 201):
 
 
 def test_get_preferences_returns_default_when_no_row(client, auth_header):
-    """No user_settings row → default {auto_transcribe: true}."""
+    """No user_settings row → default {auto_transcribe: true} + empty extras."""
     with patch("app.routers.preferences.httpx.AsyncClient") as mock_cls:
         mock_cli = AsyncMock()
         mock_cli.get = AsyncMock(return_value=_fake_httpx_get(rows=[]))
         mock_cls.return_value.__aenter__.return_value = mock_cli
         resp = client.get("/api/preferences", headers=auth_header)
     assert resp.status_code == 200
-    assert resp.json() == {"auto_transcribe": True}
+    body = resp.json()
+    assert body["auto_transcribe"] is True
+    assert body["api_keys_set"] == []
 
 
 def test_get_preferences_returns_stored_value(client, auth_header):
@@ -72,12 +74,13 @@ def test_get_preferences_returns_stored_value(client, auth_header):
         mock_cls.return_value.__aenter__.return_value = mock_cli
         resp = client.get("/api/preferences", headers=auth_header)
     assert resp.status_code == 200
-    assert resp.json() == {"auto_transcribe": False}
+    assert resp.json()["auto_transcribe"] is False
 
 
 def test_put_preferences_upserts(client, auth_header):
     with patch("app.routers.preferences.httpx.AsyncClient") as mock_cls:
         mock_cli = AsyncMock()
+        mock_cli.get = AsyncMock(return_value=_fake_httpx_get(rows=[]))
         mock_cli.post = AsyncMock(return_value=_fake_httpx_post(status_code=201))
         mock_cls.return_value.__aenter__.return_value = mock_cli
         resp = client.put(
@@ -86,13 +89,14 @@ def test_put_preferences_upserts(client, auth_header):
             json={"auto_transcribe": False},
         )
     assert resp.status_code == 200
-    assert resp.json() == {"auto_transcribe": False}
+    assert resp.json()["auto_transcribe"] is False
     mock_cli.post.assert_awaited_once()
 
 
 def test_put_preferences_500_on_upsert_failure(client, auth_header):
     with patch("app.routers.preferences.httpx.AsyncClient") as mock_cls:
         mock_cli = AsyncMock()
+        mock_cli.get = AsyncMock(return_value=_fake_httpx_get(rows=[]))
         bad_resp = AsyncMock()
         bad_resp.status_code = 403
         bad_resp.text = "permission denied"
@@ -204,3 +208,96 @@ def test_transcribe_chunk_auto_skips_when_pref_off(client, auth_header):
     body = resp.json()
     assert body.get("skipped") is True
     assert body.get("text") == ""
+
+
+# ── resolve_api_key user-stored key > env fallback ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_resolve_api_key_prefers_user_db_value():
+    """User-stored DB key must take precedence over the env fallback."""
+    from app.routers.preferences import resolve_api_key, Preferences
+
+    fake_prefs = Preferences(api_keys={"groq": "USER_DB_KEY_xyz"})
+    os.environ["GROQ_API_KEY"] = "ENV_FALLBACK_KEY"
+    with patch(
+        "app.routers.preferences.get_user_preferences",
+        new=AsyncMock(return_value=fake_prefs),
+    ):
+        got = await resolve_api_key("user-id", "groq")
+    assert got == "USER_DB_KEY_xyz"
+
+
+@pytest.mark.asyncio
+async def test_resolve_api_key_falls_back_to_env():
+    """No user-stored key → fall back to env var (self-host single-tenant)."""
+    from app.routers.preferences import resolve_api_key, Preferences
+
+    os.environ["DEEPGRAM_API_KEY"] = "ENV_DG_KEY"
+    with patch(
+        "app.routers.preferences.get_user_preferences",
+        new=AsyncMock(return_value=Preferences(api_keys={})),
+    ):
+        got = await resolve_api_key("user-id", "deepgram")
+    assert got == "ENV_DG_KEY"
+
+
+@pytest.mark.asyncio
+async def test_resolve_api_key_returns_empty_when_nothing_configured():
+    """No user-stored key + empty env → empty string (caller raises)."""
+    from app.routers.preferences import resolve_api_key, Preferences
+
+    os.environ.pop("OPENAI_API_KEY", None)
+    with patch(
+        "app.routers.preferences.get_user_preferences",
+        new=AsyncMock(return_value=Preferences(api_keys={})),
+    ):
+        got = await resolve_api_key("user-id", "openai")
+    assert got == ""
+
+
+# ── Services accept api_key override ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_groq_service_uses_explicit_api_key():
+    """GroqService.transcribe_chunk must use the api_key argument, not env."""
+    from app.services.groq_service import GroqService
+
+    svc = GroqService()
+    svc.api_key = "WRONG_ENV_KEY"
+
+    captured = {}
+
+    async def fake_call(audio_data, engine, audio_url, api_key=None):
+        captured["api_key"] = api_key
+        return {"text": "ok", "duration": 0, "segments": []}
+
+    # Use a valid WebM header + enough bytes to bypass the early-return guard.
+    audio = b"\x1a\x45\xdf\xa3" + b"\x00" * 4096
+    with patch.object(svc, "_call_groq_api", side_effect=fake_call):
+        await svc.transcribe_chunk(audio, api_key="EXPLICIT_KEY")
+    assert captured["api_key"] == "EXPLICIT_KEY"
+
+
+@pytest.mark.asyncio
+async def test_deepgram_service_uses_explicit_api_key():
+    """DeepgramService.transcribe must use the api_key argument, not env."""
+    from app.services.deepgram_service import DeepgramService
+
+    svc = DeepgramService()
+    svc.api_key = "WRONG_ENV_KEY"
+
+    captured = {}
+
+    async def fake_call(audio_url, api_key=None):
+        captured["api_key"] = api_key
+        return {"results": {"channels": [{"alternatives": [{"transcript": "ok"}]}], "utterances": []}}
+
+    async def fake_store(session_id, result):
+        return None
+
+    with patch.object(svc, "_call_deepgram", side_effect=fake_call), \
+         patch.object(svc, "_store_transcript", side_effect=fake_store):
+        await svc.transcribe("sid", "https://x/a.mp3", api_key="EXPLICIT_DG_KEY")
+    assert captured["api_key"] == "EXPLICIT_DG_KEY"

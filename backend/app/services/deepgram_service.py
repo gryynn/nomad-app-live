@@ -24,17 +24,18 @@ class DeepgramService:
         self.api_key = DEEPGRAM_API_KEY
         self.api_url = "https://api.deepgram.com/v1/listen"
 
-    async def transcribe(self, session_id: str, audio_url: str) -> dict:
-        if not self.api_key:
+    async def transcribe(self, session_id: str, audio_url: str, api_key: str | None = None) -> dict:
+        key = api_key or self.api_key
+        if not key:
             raise ValueError("DEEPGRAM_API_KEY is not configured")
 
-        result = await self._call_deepgram(audio_url)
+        result = await self._call_deepgram(audio_url, key)
         await self._store_transcript(session_id, result)
         return result
 
-    async def _call_deepgram(self, audio_url: str) -> dict:
+    async def _call_deepgram(self, audio_url: str, api_key: str | None = None) -> dict:
         headers = {
-            "Authorization": f"Token {self.api_key}",
+            "Authorization": f"Token {api_key or self.api_key}",
             "Content-Type": "application/json",
         }
         params = {

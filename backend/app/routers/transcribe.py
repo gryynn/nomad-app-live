@@ -2,12 +2,12 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Query
 import httpx
 from app.models.schemas import TranscribeRequest
 from app.auth import get_current_user
-from app.routers.preferences import get_user_preferences
+from app.routers.preferences import get_user_preferences, resolve_api_key
 from app.services.queue_manager import QueueManager
 from app.services.groq_service import GroqService, GroqFileTooLargeError
 from app.services.deepgram_service import DeepgramService
 from app.services.wynona_service import WynonaService
-from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY, DEEPGRAM_API_KEY, PUBLIC_BACKEND_URL
+from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY, PUBLIC_BACKEND_URL
 
 router = APIRouter(prefix="/transcribe", tags=["transcribe"])
 
@@ -30,7 +30,7 @@ deepgram_service = DeepgramService()
 wynona_service = WynonaService()
 
 
-async def resolve_engine(engine: str, audio_url: str) -> str:
+async def resolve_engine(engine: str, audio_url: str, has_deepgram: bool) -> str:
     """Auto-select engine based on file size when engine is 'auto'."""
     if engine != "auto":
         return engine
@@ -59,11 +59,11 @@ async def resolve_engine(engine: str, audio_url: str) -> str:
         print(f"[AUTO-ENGINE] Size check failed ({e}), defaulting to groq-turbo")
 
     if size > GROQ_SIZE_LIMIT:
-        if DEEPGRAM_API_KEY:
+        if has_deepgram:
             print(f"[AUTO-ENGINE] File {size / 1024 / 1024:.1f} MB > 25 MB → deepgram")
             return "deepgram"
         else:
-            print(f"[AUTO-ENGINE] WARNING: File {size / 1024 / 1024:.1f} MB > 25 MB but no DEEPGRAM_API_KEY, Groq will likely fail")
+            print(f"[AUTO-ENGINE] WARNING: File {size / 1024 / 1024:.1f} MB > 25 MB but no DEEPGRAM key for this user, Groq will likely fail")
     elif size > 0:
         print(f"[AUTO-ENGINE] File {size / 1024 / 1024:.1f} MB ≤ 25 MB → groq-turbo")
     else:
@@ -71,7 +71,14 @@ async def resolve_engine(engine: str, audio_url: str) -> str:
     return "groq-turbo"
 
 
-async def process_transcription(job_id: str, session_id: str, engine: str, audio_url: str):
+async def process_transcription(
+    job_id: str,
+    session_id: str,
+    engine: str,
+    audio_url: str,
+    groq_key: str | None,
+    deepgram_key: str | None,
+):
     try:
         queue_manager.update_status(job_id, "processing")
 
@@ -80,8 +87,8 @@ async def process_transcription(job_id: str, session_id: str, engine: str, audio
         from app.routers.upload import signed_audio_url
         audio_url = signed_audio_url(session_id, audio_url)
 
-        # Resolve auto engine
-        resolved = await resolve_engine(engine, audio_url)
+        # Resolve auto engine (knowing whether user has a Deepgram key available)
+        resolved = await resolve_engine(engine, audio_url, has_deepgram=bool(deepgram_key))
         print(f"[TRANSCRIBE] job={job_id} engine={engine}→{resolved}")
 
         # Store which engine is being used
@@ -97,9 +104,9 @@ async def process_transcription(job_id: str, session_id: str, engine: str, audio
 
         if resolved in ["groq-turbo", "groq-large"]:
             try:
-                await groq_service.transcribe(session_id, audio_url, resolved)
+                await groq_service.transcribe(session_id, audio_url, resolved, api_key=groq_key)
             except GroqFileTooLargeError as e:
-                if DEEPGRAM_API_KEY:
+                if deepgram_key:
                     print(f"[TRANSCRIBE] Groq rejected ({e}), falling back to deepgram")
                     resolved = "deepgram"
                     async with httpx.AsyncClient() as client:
@@ -108,12 +115,12 @@ async def process_transcription(job_id: str, session_id: str, engine: str, audio
                             headers=HEADERS,
                             json={"engine_used": "deepgram"},
                         )
-                    await deepgram_service.transcribe(session_id, audio_url)
+                    await deepgram_service.transcribe(session_id, audio_url, api_key=deepgram_key)
                 else:
                     raise
             queue_manager.update_status(job_id, "completed")
         elif resolved == "deepgram":
-            await deepgram_service.transcribe(session_id, audio_url)
+            await deepgram_service.transcribe(session_id, audio_url, api_key=deepgram_key)
             queue_manager.update_status(job_id, "completed")
         elif resolved == "wynona":
             await wynona_service.transcribe(session_id, audio_url)
@@ -196,6 +203,11 @@ async def transcribe_session(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to verify session: {str(e)}")
 
+    # Resolve user-scoped API keys before queuing (so the background task
+    # doesn't need to re-query the DB and we honor the calling user's keys).
+    groq_key = await resolve_api_key(user["id"], "groq")
+    deepgram_key = await resolve_api_key(user["id"], "deepgram")
+
     job_id = queue_manager.add_job(session_id, request.engine)
 
     background_tasks.add_task(
@@ -203,7 +215,9 @@ async def transcribe_session(
         job_id,
         session_id,
         request.engine,
-        audio_url
+        audio_url,
+        groq_key,
+        deepgram_key,
     )
 
     return {
@@ -226,6 +240,8 @@ async def transcribe_chunk(
         prefs = await get_user_preferences(user["id"])
         if not prefs.auto_transcribe:
             return {"seq": seq, "text": "", "duration": 0, "segments": [], "skipped": True, "reason": "auto_transcribe disabled"}
+
+    groq_key = await resolve_api_key(user["id"], "groq")
 
     chunk_path = f"{session_id}/chunk_{str(seq).zfill(4)}.webm"
     chunk_url = f"{SUPABASE_URL}/storage/v1/object/nomad-audio-chunks/{chunk_path}"
@@ -258,7 +274,7 @@ async def transcribe_chunk(
         print(f"[CHUNK-TR] {session_id} seq={seq}: downloaded {len(audio_data)}B, sending to Groq...")
 
         # Transcribe via Groq (30s chunk = ~500KB, well under 25MB limit)
-        result = await groq_service.transcribe_chunk(audio_data)
+        result = await groq_service.transcribe_chunk(audio_data, api_key=groq_key)
         text = result.get("text", "").strip()
         duration = result.get("duration", 0)
 

@@ -36,13 +36,13 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.auth import APP_JWT_SECRET
 from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+from app.routers.preferences import resolve_api_key
 import jwt
 
 
 router = APIRouter(prefix="/transcribe", tags=["streaming"])
 
 STREAMING_ENABLED = os.environ.get("STREAMING_ENABLED", "false").lower() == "true"
-DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
 DEEPGRAM_WS_URL = (
     "wss://api.deepgram.com/v1/listen"
     "?model=nova-2"
@@ -113,11 +113,23 @@ async def stream(websocket: WebSocket, session_id: str):
 
     await websocket.accept()
 
-    if not STREAMING_ENABLED or not DEEPGRAM_API_KEY:
+    if not STREAMING_ENABLED:
         await websocket.send_json({
             "type": "error",
             "code": "streaming_disabled",
-            "detail": "Set STREAMING_ENABLED=true + DEEPGRAM_API_KEY in backend/.env",
+            "detail": "Set STREAMING_ENABLED=true in backend/.env",
+        })
+        await websocket.close(code=1011)
+        return
+
+    # Resolve the caller's Deepgram key (user-stored DB key → env fallback).
+    user_id = user.get("sub") or user.get("id")
+    deepgram_key = await resolve_api_key(user_id, "deepgram") if user_id else None
+    if not deepgram_key:
+        await websocket.send_json({
+            "type": "error",
+            "code": "deepgram_key_missing",
+            "detail": "No Deepgram API key configured (DB user_settings or DEEPGRAM_API_KEY env)",
         })
         await websocket.close(code=1011)
         return
@@ -127,7 +139,7 @@ async def stream(websocket: WebSocket, session_id: str):
     try:
         async with websockets.connect(
             DEEPGRAM_WS_URL,
-            additional_headers={"Authorization": f"Token {DEEPGRAM_API_KEY}"},
+            additional_headers={"Authorization": f"Token {deepgram_key}"},
             max_size=2**24,
         ) as dg:
             async def client_to_dg():

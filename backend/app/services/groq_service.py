@@ -38,9 +38,10 @@ class GroqService:
         ".flac": ("audio.flac", "audio/flac"),
     }
 
-    async def transcribe_chunk(self, audio_data: bytes, engine: str = "groq-turbo") -> dict:
+    async def transcribe_chunk(self, audio_data: bytes, engine: str = "groq-turbo", api_key: str | None = None) -> dict:
         """Transcribe raw audio bytes without storing to DB. For chunk-by-chunk LIVE mode."""
-        if not self.api_key:
+        key = api_key or self.api_key
+        if not key:
             raise ValueError("GROQ_API_KEY is not configured")
         # Validate WebM header (EBML magic bytes 1A 45 DF A3)
         if len(audio_data) < 4 or audio_data[:4] != b'\x1a\x45\xdf\xa3':
@@ -50,16 +51,17 @@ class GroqService:
         if len(audio_data) < 2048:
             print(f"[GROQ] Chunk skipped: too small ({len(audio_data)}B)")
             return {"text": "", "duration": 0, "segments": []}
-        return await self._call_groq_api(audio_data, engine, "audio.webm")
+        return await self._call_groq_api(audio_data, engine, "audio.webm", key)
 
-    async def transcribe(self, session_id: str, audio_url: str, engine: str = "groq-turbo") -> dict:
-        if not self.api_key:
+    async def transcribe(self, session_id: str, audio_url: str, engine: str = "groq-turbo", api_key: str | None = None) -> dict:
+        key = api_key or self.api_key
+        if not key:
             raise ValueError("GROQ_API_KEY is not configured")
 
         audio_data = await self._download_audio(audio_url)
         if len(audio_data) > GROQ_SIZE_LIMIT:
             raise GroqFileTooLargeError(len(audio_data))
-        result = await self._call_groq_api(audio_data, engine, audio_url)
+        result = await self._call_groq_api(audio_data, engine, audio_url, key)
         await self._store_transcript(session_id, result, engine)
         return result
 
@@ -77,11 +79,11 @@ class GroqService:
                 return fname, mime
         return "audio.mp3", "audio/mpeg"  # default fallback
 
-    async def _call_groq_api(self, audio_data: bytes, engine: str, audio_url: str = "") -> dict:
+    async def _call_groq_api(self, audio_data: bytes, engine: str, audio_url: str = "", api_key: str | None = None) -> dict:
         model = "whisper-large-v3-turbo" if engine == "groq-turbo" else "whisper-large-v3"
 
         fname, mime = self._detect_mime(audio_url)
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        headers = {"Authorization": f"Bearer {api_key or self.api_key}"}
         files = {"file": (fname, audio_data, mime)}
         data = {
             "model": model,
