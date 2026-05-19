@@ -104,6 +104,172 @@ function ThemeToggleButton() {
   );
 }
 
+// Settings overlay — auto-transcribe is toggled from the top bar, this modal
+// covers the heavier knobs: preferred engine, transcription API keys, and the
+// WhisperX self-hosted endpoint. The plaintext keys never come back from the
+// backend; the modal only knows which vendors are "configured" (api_keys_set).
+function SettingsModal({ prefs, onClose, onSave }) {
+  const [engine, setEngine] = useState(prefs.preferred_engine || "auto");
+  const [wynona, setWynona] = useState(prefs.wynona_endpoint || "");
+  const [groqKey, setGroqKey] = useState("");
+  const [deepgramKey, setDeepgramKey] = useState("");
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const isSet = (name) => (prefs.api_keys_set || []).includes(name);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    const api_keys = {};
+    if (groqKey.trim()) api_keys.groq = groqKey.trim();
+    if (deepgramKey.trim()) api_keys.deepgram = deepgramKey.trim();
+    if (openaiKey.trim()) api_keys.openai = openaiKey.trim();
+    await onSave({
+      preferred_engine: engine,
+      wynona_endpoint: wynona.trim() || null,
+      api_keys,
+    });
+    setBusy(false);
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.55)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1rem",
+        zIndex: 1000,
+      }}
+    >
+      <form
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={submit}
+        style={{
+          width: "100%",
+          maxWidth: 460,
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 10,
+          padding: "1.25rem",
+          color: "var(--text)",
+          maxHeight: "90dvh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <h2 style={{ fontSize: "0.95rem", letterSpacing: "0.2em", fontWeight: 600 }}>RÉGLAGES</h2>
+          <button type="button" onClick={onClose} style={iconBtn} aria-label="Fermer">✕</button>
+        </div>
+
+        <Section label="Moteur préféré">
+          <select value={engine} onChange={(e) => setEngine(e.target.value)} style={input}>
+            <option value="auto">Auto (choix selon la durée)</option>
+            <option value="groq-turbo">Groq turbo (rapide, FR)</option>
+            <option value="groq-large">Groq large (qualité)</option>
+            <option value="deepgram">Deepgram (multi-locuteurs)</option>
+            <option value="wynona">WhisperX local (WYNONA)</option>
+          </select>
+        </Section>
+
+        <Section label="Clés API transcription">
+          <KeyField label="Groq" placeholder={isSet("groq") ? "•••••• (configuré, vide = inchangé)" : "gsk_…"} value={groqKey} onChange={setGroqKey} />
+          <KeyField label="Deepgram" placeholder={isSet("deepgram") ? "•••••• (configuré)" : "Token Deepgram"} value={deepgramKey} onChange={setDeepgramKey} />
+          <KeyField label="OpenAI (Whisper API)" placeholder={isSet("openai") ? "•••••• (configuré)" : "sk-…"} value={openaiKey} onChange={setOpenaiKey} />
+          <p style={{ fontSize: "0.7rem", color: "var(--text-soft)", marginTop: 4 }}>
+            Stocké chiffré-au-repos côté serveur, jamais renvoyé en clair. Pour supprimer une clé : tape un espace puis Enregistrer.
+          </p>
+        </Section>
+
+        <Section label="WhisperX self-hosted (optionnel)">
+          <input
+            type="text"
+            placeholder="https://whisperx.mon-domaine.com"
+            value={wynona}
+            onChange={(e) => setWynona(e.target.value)}
+            style={input}
+          />
+          <p style={{ fontSize: "0.7rem", color: "var(--text-soft)", marginTop: 4 }}>
+            Endpoint de ton instance WhisperX (GPU local). Activé quand le moteur préféré est <code>wynona</code>.
+          </p>
+        </Section>
+
+        <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+          <button type="button" onClick={onClose} style={{ ...primaryBtn, background: "transparent", color: "var(--text-soft)", border: "1px solid var(--border)" }}>
+            Annuler
+          </button>
+          <button type="submit" disabled={busy} style={{ ...primaryBtn, opacity: busy ? 0.55 : 1, cursor: busy ? "not-allowed" : "pointer" }}>
+            {busy ? "…" : "Enregistrer"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function Section({ label, children }) {
+  return (
+    <div style={{ marginBottom: "1rem" }}>
+      <label style={{ display: "block", fontSize: "0.7rem", letterSpacing: "0.12em", color: "var(--text-soft)", marginBottom: 6, textTransform: "uppercase" }}>
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function KeyField({ label, placeholder, value, onChange }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+      <span style={{ fontSize: "0.75rem", width: 90, color: "var(--text-soft)" }}>{label}</span>
+      <input
+        type="password"
+        autoComplete="new-password"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ ...input, flex: 1 }}
+      />
+    </div>
+  );
+}
+
+const input = {
+  width: "100%",
+  background: "var(--bg)",
+  color: "var(--text)",
+  border: "1px solid var(--border)",
+  borderRadius: 6,
+  padding: "0.5rem 0.7rem",
+  fontSize: "0.85rem",
+  outline: "none",
+};
+
+const primaryBtn = {
+  flex: 1,
+  padding: "0.65rem",
+  borderRadius: 6,
+  border: "none",
+  background: "var(--accent)",
+  color: "var(--bg)",
+  fontSize: "0.85rem",
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+const iconBtn = {
+  background: "none",
+  border: "none",
+  color: "var(--text-soft)",
+  cursor: "pointer",
+  fontSize: "1rem",
+};
+
 // ═══════════════════════════════════════════════════════
 // APP
 // ═══════════════════════════════════════════════════════
@@ -139,9 +305,15 @@ function AppContent({ user, signOut }) {
   const [success, setSuccess] = useState(null);
 
   // User preferences (auto-transcribe toggle, etc.)
-  const [prefs, setPrefs] = useState({ auto_transcribe: true });
+  const [prefs, setPrefs] = useState({
+    auto_transcribe: true,
+    preferred_engine: "auto",
+    wynona_endpoint: null,
+    api_keys_set: [],
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => {
-    api.getPreferences().then(setPrefs).catch(() => { /* keep defaults */ });
+    api.getPreferences().then((p) => setPrefs((prev) => ({ ...prev, ...p }))).catch(() => { /* keep defaults */ });
   }, []);
   const toggleAutoTranscribe = async () => {
     const next = { ...prefs, auto_transcribe: !prefs.auto_transcribe };
@@ -152,6 +324,20 @@ function AppContent({ user, signOut }) {
       setError(`Impossible de sauvegarder la préférence: ${e.message}`);
       setPrefs(prefs); // rollback local
     }
+  };
+  // Settings modal save: merges new fields + plaintext api_keys (write-only)
+  // into the existing prefs row. The backend returns api_keys_set so we
+  // refresh state without holding plaintext keys in memory after save.
+  const saveSettings = async ({ preferred_engine, wynona_endpoint, api_keys }) => {
+    const payload = {
+      auto_transcribe: prefs.auto_transcribe,
+      preferred_engine: preferred_engine ?? prefs.preferred_engine,
+      wynona_endpoint: wynona_endpoint ?? prefs.wynona_endpoint,
+      api_keys: api_keys || {},
+    };
+    const updated = await api.setPreferences(payload);
+    setPrefs((prev) => ({ ...prev, ...updated }));
+    setSuccess("Réglages enregistrés");
   };
 
   // Paste state
@@ -1663,6 +1849,13 @@ function AppContent({ user, signOut }) {
           <div className={`status-dot ${!offline.isOnline ? "offline" : loading ? "offline" : ""}`} title={!offline.isOnline ? "Hors-ligne" : loading ? "Chargement..." : "Connecté"} />
           <ThemeToggleButton />
           <button
+            onClick={() => setSettingsOpen(true)}
+            title="Réglages — clés API, moteur, WhisperX"
+            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.9rem", opacity: 0.6, color: "inherit", padding: "2px 4px" }}
+          >
+            ⚙️
+          </button>
+          <button
             onClick={signOut}
             title={user.email}
             style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.75rem", opacity: 0.4, color: "inherit", padding: "2px 4px" }}
@@ -1671,6 +1864,21 @@ function AppContent({ user, signOut }) {
           </button>
         </div>
       </div>
+
+      {settingsOpen && (
+        <SettingsModal
+          prefs={prefs}
+          onClose={() => setSettingsOpen(false)}
+          onSave={async (payload) => {
+            try {
+              await saveSettings(payload);
+              setSettingsOpen(false);
+            } catch (e) {
+              setError(`Réglages: ${e.message || e}`);
+            }
+          }}
+        />
+      )}
 
       {/* Messages */}
       {error && <div className="error-msg">{error}</div>}
