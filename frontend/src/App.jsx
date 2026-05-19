@@ -33,24 +33,16 @@ function formatTimer(ms) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-// Patterns that the various ingest paths leave behind when no human-friendly
-// title was set: bare UUIDs, `rec_<uuid>`/`live_<ts>`, DJI Mic TX0…, and the
-// Voice Recorder "YYMMDD_HHMMSS" / Watch "YYYYMMDD_HHMMSS" timestamps. These
-// look like "no title" to the user, so we synthesize a readable label.
-const TECHNICAL_TITLE_RE = /^(live_|rec_|TX01_MIC|[a-f0-9]{8}-[a-f0-9]{4}-|\d{6}_\d{6}$|\d{8}_\d{6})/;
-
+// Display the stored title as-is. The DB has no NULL/empty titles for active
+// sessions, and the watcher always prefixes "Voice:" / "Watch:" / etc. so
+// even the technical YYMMDD_HHMMSS recordings look like "Voice: 260319_142512"
+// rather than bare timestamps. Fallback only fires when the title is truly
+// empty (e.g. a freshly-created session row that hasn't been named yet).
 function prettifyTitle(s) {
-  // Defensive: only synthesize a fallback when there's literally no usable
-  // title. A non-empty, non-technical title always wins, including stuff like
-  // "Voice: 5ème mois" that the watcher prefixes.
   if (!s) return "Session";
   const raw = typeof s.title === "string" ? s.title.trim() : "";
-  if (raw.length > 0 && !TECHNICAL_TITLE_RE.test(raw)) return raw;
-  if (raw.length > 0 && raw.length < 4) return raw; // single-char placeholders kept
-  const ts = s.recorded_at || s.created_at;
-  const when = ts ? new Date(ts).toLocaleDateString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-  const modeLabel = { live: "LIVE", rec: "REC", import: "Import", paste: "Paste", meet: "MEET" }[s.input_mode] || "Session";
-  return when ? `${modeLabel} · ${when}` : modeLabel;
+  if (raw.length > 0) return raw;
+  return "(sans titre)";
 }
 
 function inputModeEmoji(mode) {
