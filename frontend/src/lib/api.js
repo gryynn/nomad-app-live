@@ -58,6 +58,31 @@ export const getSessions = (params = {}) => {
 
 export const getSession = (id) => request(`/api/sessions/${id}`);
 
+// Photos / screenshots tied to a session. `formData` carries the binary plus
+// audio_timestamp_ms + caption fields. Multipart so no Content-Type override.
+export const postAttachment = async (sessionId, formData) => {
+  const url = `${BASE}/api/sessions/${sessionId}/attachments`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || res.statusText);
+  }
+  return res.json();
+};
+
+export const listAttachments = (sessionId) =>
+  request(`/api/sessions/${sessionId}/attachments`);
+
+export const deleteAttachment = async (sessionId, attachmentId) => {
+  const url = `${BASE}/api/sessions/${sessionId}/attachments/${attachmentId}`;
+  const res = await fetch(url, { method: "DELETE", headers: getAuthHeaders() });
+  if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
+};
+
 export const updateSession = (id, data) =>
   request(`/api/sessions/${id}`, { method: "PUT", body: JSON.stringify(data) });
 

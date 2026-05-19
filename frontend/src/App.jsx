@@ -837,12 +837,46 @@ function AppContent({ user, signOut }) {
   function insertMark() {
     const ta = recNotesRef.current;
     if (!ta) return;
-    const stamp = `[${formatTimer(recTime)}] `;
+    const now = new Date();
+    const wall = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const stamp = `[${formatTimer(recTime)}] ${wall} `;
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
     const newText = recNotesText.substring(0, start) + stamp + recNotesText.substring(end);
     setRecNotesText(newText);
     setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + stamp.length; ta.focus(); }, 0);
+  }
+
+  // Insert a "[PHOTO HH:MM:SS — YYYY-MM-DD HH:MM — filename]" marker into the
+  // current rec-notes textarea + upload the photo to the attachments endpoint
+  // so the NOMAD → Obsidian pipeline can resolve it later.
+  async function attachPhoto(fileInputEvent) {
+    const file = fileInputEvent.target.files && fileInputEvent.target.files[0];
+    fileInputEvent.target.value = ""; // allow re-pick of the same file
+    if (!file) return;
+    const ta = recNotesRef.current;
+    const sid = recordingIdRef.current;
+    if (!ta || !sid) {
+      setError("Démarre un enregistrement d'abord.");
+      return;
+    }
+    const now = new Date();
+    const wall = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const marker = `[PHOTO ${formatTimer(recTime)} — ${wall} — ${file.name}] `;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    setRecNotesText(recNotesText.substring(0, start) + marker + recNotesText.substring(end));
+    setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + marker.length; ta.focus(); }, 0);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("audio_timestamp_ms", String(recTime));
+      fd.append("caption", "");
+      await api.postAttachment(sid, fd);
+      setSuccess(`Photo ${file.name} attachée`);
+    } catch (e) {
+      setError(`Upload photo échoué : ${e.message || e}`);
+    }
   }
 
   function insertTag(tagName) {
@@ -2307,6 +2341,16 @@ function AppContent({ user, signOut }) {
                 <button className="btn btn-sm btn-ghost" onClick={insertMark}>
                   Mark ⏱
                 </button>
+                <label className="btn btn-sm btn-ghost" style={{ cursor: "pointer", margin: 0 }} title="Prendre / joindre une photo, marqueur inséré dans les notes">
+                  Photo 📸
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    style={{ display: "none" }}
+                    onChange={attachPhoto}
+                  />
+                </label>
                 {tags.length > 0 && (
                   <div className="tags-shortcuts">
                     {tags.map((tag) => (
