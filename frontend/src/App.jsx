@@ -106,6 +106,93 @@ function ThemeToggleButton() {
   );
 }
 
+// Split-button used in the session detail view: a "Re-transcrire" action
+// with an arrow that opens a small popover listing the available engines.
+// Mirror of the mobile PopupMenuButton so PWA and Flutter stay in lock-step.
+const TRANSCRIBE_ENGINES = [
+  { value: "auto", label: "Auto (choix selon la durée)" },
+  { value: "groq-turbo", label: "Groq Turbo (rapide)" },
+  { value: "groq-large", label: "Groq Large (qualité)" },
+  { value: "deepgram", label: "Deepgram (locuteurs)" },
+  { value: "wynona", label: "WhisperX (WYNONA)" },
+];
+
+function RetranscribeDropdown({ onPick }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        className="btn btn-sm btn-ghost"
+        onClick={() => onPick("auto")}
+        style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0, paddingRight: 8 }}
+        title="Re-transcrire (Auto)"
+      >
+        Re-transcrire
+      </button>
+      <button
+        className="btn btn-sm btn-ghost"
+        onClick={() => setOpen((v) => !v)}
+        title="Choisir le moteur"
+        style={{
+          borderTopLeftRadius: 0,
+          borderBottomLeftRadius: 0,
+          borderLeft: "1px solid var(--border)",
+          padding: "0 6px",
+        }}
+      >
+        ▾
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            right: 0,
+            marginTop: 4,
+            minWidth: 220,
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
+            zIndex: 50,
+            overflow: "hidden",
+          }}
+        >
+          {TRANSCRIBE_ENGINES.map((e) => (
+            <button
+              key={e.value}
+              onClick={() => { setOpen(false); onPick(e.value); }}
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                padding: "8px 12px",
+                fontSize: 13,
+                background: "transparent",
+                color: "var(--text)",
+                border: "none",
+                cursor: "pointer",
+              }}
+              onMouseEnter={(ev) => { ev.currentTarget.style.background = "var(--bg)"; }}
+              onMouseLeave={(ev) => { ev.currentTarget.style.background = "transparent"; }}
+            >
+              {e.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Settings overlay — auto-transcribe is toggled from the top bar, this modal
 // covers the heavier knobs: preferred engine, transcription API keys, and the
 // WhisperX self-hosted endpoint. The plaintext keys never come back from the
@@ -467,6 +554,8 @@ function AppContent({ user, signOut }) {
   // Editable transcript in session detail
   const [editingTranscript, setEditingTranscript] = useState("");
   const [transcriptDirty, setTranscriptDirty] = useState(false);
+  const [transcriptSaving, setTranscriptSaving] = useState(false);
+  const transcriptDebounceRef = useRef(null);
   const [transcriptViewMode, setTranscriptViewMode] = useState("plain"); // plain | timestamps | speakers
   const audioPlayerRef = useRef(null);
   const [playerPlaying, setPlayerPlaying] = useState(false);
@@ -1456,11 +1545,13 @@ function AppContent({ user, signOut }) {
     setTimeout(() => poll(), 2000);
   }
 
-  async function handleTranscribe(sessionId) {
+  async function handleTranscribe(sessionId, engineOverride) {
     setError(null);
+    const engine = engineOverride || selectedEngine;
     try {
-      const result = await api.transcribe(sessionId, selectedEngine);
-      setSuccess(`Transcription lancée (${selectedEngine})...`);
+      await api.transcribe(sessionId, engine);
+      const label = engine === "auto" ? "auto" : engine;
+      setSuccess(`Transcription lancée (${label})…`);
       pollTranscription(sessionId);
     } catch (e) {
       setError(`Erreur transcription: ${e.message}`);
@@ -1627,7 +1718,11 @@ function AppContent({ user, signOut }) {
   }
 
   // ─── Save edited transcript ─────────────────────
-  async function handleSaveTranscript(sessionId) {
+  // Mirrors the mobile pattern: auto-save 1.5s after the last keystroke
+  // (silent), plus a visible "Sauvegarder" button for explicit confirm.
+  async function handleSaveTranscript(sessionId, { silent = false } = {}) {
+    if (transcriptSaving) return;
+    setTranscriptSaving(true);
     try {
       const wordCount = editingTranscript.trim().split(/\s+/).filter(Boolean).length;
       await api.updateSession(sessionId, {
@@ -1638,11 +1733,22 @@ function AppContent({ user, signOut }) {
       const detail = await api.getSession(sessionId);
       setExpandedSession(detail);
       setEditingTranscript(detail.transcript || "");
-      await loadSessions();
-      setSuccess("Transcription mise à jour");
+      if (!silent) {
+        await loadSessions();
+        setSuccess("Transcription mise à jour");
+      }
     } catch (e) {
-      setError(`Erreur: ${e.message}`);
+      if (!silent) setError(`Erreur: ${e.message}`);
+    } finally {
+      setTranscriptSaving(false);
     }
+  }
+
+  function scheduleTranscriptAutoSave(sessionId) {
+    if (transcriptDebounceRef.current) clearTimeout(transcriptDebounceRef.current);
+    transcriptDebounceRef.current = setTimeout(() => {
+      handleSaveTranscript(sessionId, { silent: true });
+    }, 1500);
   }
 
   // ─── Audio player helpers ─────────────────────────
@@ -2956,17 +3062,27 @@ function AppContent({ user, signOut }) {
                             <textarea
                               className="transcript-edit"
                               value={editingTranscript || expandedSession.transcript}
-                              onChange={(e) => { setEditingTranscript(e.target.value); setTranscriptDirty(true); }}
+                              onChange={(e) => {
+                                setEditingTranscript(e.target.value);
+                                setTranscriptDirty(true);
+                                scheduleTranscriptAutoSave(s.id);
+                              }}
                             />
-                            {transcriptDirty && (
-                              <button
-                                className="btn btn-sm btn-primary"
-                                style={{ marginTop: 6, width: "auto" }}
-                                onClick={() => handleSaveTranscript(s.id)}
-                              >
-                                Sauvegarder transcription
-                              </button>
-                            )}
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                              {transcriptDirty && (
+                                <button
+                                  className="btn btn-sm btn-primary"
+                                  style={{ width: "auto" }}
+                                  onClick={() => handleSaveTranscript(s.id)}
+                                  disabled={transcriptSaving}
+                                >
+                                  {transcriptSaving ? "…" : "Sauvegarder transcription"}
+                                </button>
+                              )}
+                              <span style={{ fontSize: 11, color: "var(--text-soft)" }}>
+                                {transcriptSaving ? "Sauvegarde…" : (transcriptDirty ? "Modifié — auto-save dans 1.5s" : "Synchronisé")}
+                              </span>
+                            </div>
                           </>
                         )}
 
@@ -3138,9 +3254,9 @@ function AppContent({ user, signOut }) {
                         </button>
                       )}
                       {s.audio_url && expandedSession.transcript && (
-                        <button className="btn btn-sm btn-ghost" onClick={() => handleTranscribe(s.id)}>
-                          Re-transcrire
-                        </button>
+                        <RetranscribeDropdown
+                          onPick={(engine) => handleTranscribe(s.id, engine)}
+                        />
                       )}
                       <button className="btn btn-sm btn-danger" onClick={() => handleDelete(s.id)}>
                         Supprimer

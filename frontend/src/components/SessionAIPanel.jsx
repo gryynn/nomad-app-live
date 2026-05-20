@@ -175,6 +175,11 @@ function AIOutputCard({ output, onDelete, onRerun }) {
     } finally { setSaving(false); }
   }
 
+  function saveNow() {
+    if (debRef.current) clearTimeout(debRef.current);
+    save(text);
+  }
+
   const isInflight = output.status === "pending" || output.status === "running";
   const isError = output.status === "error";
   const isDone = output.status === "done";
@@ -224,7 +229,24 @@ function AIOutputCard({ output, onDelete, onRerun }) {
                 <> · {output.tokens_input}+{output.tokens_output} tok</>
               )}
             </span>
-            <div style={{ display: "flex", gap: 4 }}>
+            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              {dirty && (
+                <button
+                  onClick={saveNow}
+                  disabled={saving}
+                  style={{
+                    fontSize: 11,
+                    padding: "3px 10px",
+                    borderRadius: 999,
+                    border: "1px solid var(--accent)",
+                    background: "var(--accent)22",
+                    color: "var(--accent)",
+                    cursor: saving ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {saving ? "…" : "Sauvegarder"}
+                </button>
+              )}
               <button onClick={() => setExpanded((v) => !v)} style={iconBtnSmall} title="Agrandir/réduire">{expanded ? "▲" : "▼"}</button>
               <button
                 onClick={() => { navigator.clipboard.writeText(text); }}
