@@ -73,6 +73,14 @@ async def public_config():
     return {"storage_driver": get_storage_backend().name}
 
 
+@app.get("/api/storage/usage")
+async def storage_usage(user=Depends(get_current_user)):
+    """Per-user storage state. Lets the frontend surface a warning before
+    the hard quota wall is hit. limit_mb=0 means unlimited."""
+    from app.services import storage_quota
+    return await storage_quota.usage_report(user["id"])
+
+
 @app.get("/api/auth/me")
 async def auth_me(user=Depends(get_current_user)):
     return {"user_id": user["id"], "email": user["email"]}

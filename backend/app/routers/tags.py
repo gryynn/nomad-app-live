@@ -94,21 +94,48 @@ async def list_tags(
 
 @router.post("", response_model=TagResponse, status_code=201)
 async def create_tag(tag: TagCreate, user=Depends(get_current_user)):
-    """Create a new tag"""
-    try:
-        # Prepare tag data for insertion
-        tag_data = {
-            "name": tag.name,
-            "emoji": tag.emoji,
-            "hue": tag.hue,
-            "user_id": user["id"],
-        }
+    """Create a new tag — idempotent on (user_id, lower(name)).
 
-        # Add optional parent_id if provided
-        if tag.parent_id is not None:
-            tag_data["parent_id"] = tag.parent_id
+    Before inserting, look up an existing tag with the same normalised name
+    for this user and return it instead. Hashtag autocomplete spams POST
+    while the user types; without this check we accumulate duplicates
+    (`#test` × 13 in real prod data).
+    """
+    try:
+        normalised_name = (tag.name or "").strip()
+        if not normalised_name:
+            raise HTTPException(status_code=400, detail="Tag name cannot be empty")
 
         async with httpx.AsyncClient() as client:
+            # Idempotency: return the existing canonical tag if any
+            existing_resp = await client.get(
+                f"{BASE_URL}/tags",
+                headers=HEADERS,
+                params={
+                    "user_id": f"eq.{user['id']}",
+                    "name": f"ilike.{normalised_name}",
+                    "select": "*",
+                    "limit": "1",
+                },
+            )
+            if existing_resp.status_code == 200:
+                rows = existing_resp.json()
+                if rows:
+                    rows[0]["session_count"] = 0
+                    return rows[0]
+
+            # Prepare tag data for insertion
+            tag_data = {
+                "name": normalised_name,
+                "emoji": tag.emoji,
+                "hue": tag.hue,
+                "user_id": user["id"],
+            }
+
+            # Add optional parent_id if provided
+            if tag.parent_id is not None:
+                tag_data["parent_id"] = tag.parent_id
+
             response = await client.post(
                 f"{BASE_URL}/tags",
                 headers=HEADERS,
