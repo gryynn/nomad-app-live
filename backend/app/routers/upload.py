@@ -15,6 +15,7 @@ from app.config import (
 from app.auth import get_current_user, create_audio_token
 from app.services.storage import get_storage_backend
 from app.services.storage.supabase import SupabaseStorageBackend
+from app.services import storage_quota
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -68,6 +69,24 @@ def _audio_url_for(session_id: str, storage_key: str) -> str:
         bucket_path = key.split("/", 1)[1] if "/" in key else key
         return f"{SUPABASE_URL}/storage/v1/object/public/nomad-audio/{bucket_path}"
     return f"{PUBLIC_BACKEND_URL}/api/audio/{session_id}"
+
+
+async def _enforce_quota(user_id: str, additional_bytes: int = 0) -> None:
+    """Raise 413 if this upload would push the user past their quota.
+
+    Centralised so /upload, /upload/complete, /upload/assemble all share
+    the same gate. additional_bytes=0 is fine for the assemble path,
+    where the file is already on disk via chunks.
+    """
+    allowed, current_mb, limit_mb = await storage_quota.check_quota(user_id, additional_bytes)
+    if not allowed:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Storage quota exceeded: {current_mb} MB used, "
+                f"limit is {limit_mb} MB. Delete old sessions to free space."
+            ),
+        )
 
 
 def signed_audio_url(session_id: str, base_audio_url: str) -> str:
@@ -172,6 +191,7 @@ async def upload_init(req: UploadInitRequest, user=Depends(get_current_user)):
 @router.post("/complete")
 async def upload_complete(req: UploadCompleteRequest, user=Depends(get_current_user)):
     """Create session record after client has uploaded directly to storage."""
+    await _enforce_quota(user["id"], req.size)
     storage_key = _key("audio", req.storage_path)
     audio_url = _audio_url_for(req.session_id, storage_key)
 
@@ -227,6 +247,8 @@ async def upload_audio_legacy(file: UploadFile = File(...), user=Depends(get_cur
     try:
         file_content = await file.read()
         file_size = len(file_content)
+
+        await _enforce_quota(user_id, file_size)
 
         backend = get_storage_backend()
         try:
@@ -384,6 +406,11 @@ async def upload_chunk(
     if idx < 0 or idx > 99999:
         raise HTTPException(status_code=400, detail="Invalid chunk index")
 
+    # Quota gate: stop a user who's already at the limit from piling up
+    # chunks. The first chunk over the limit will 413 — they'll see a
+    # clean error in the SyncPanel instead of a silent disk filler.
+    await _enforce_quota(user["id"], 0)
+
     backend = get_storage_backend()
     chunk_key = _key("chunks", session_id, f"chunk_{idx:04d}.webm")
     content_type = file.content_type or "audio/webm"
@@ -404,6 +431,13 @@ async def upload_chunk(
 async def assemble_chunks(req: AssembleRequest, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
     """Create session immediately, then assemble chunks in background."""
     user_id = user["id"]
+
+    # Quota check at assemble-time. Chunk size isn't known precisely yet
+    # (the assembler concats them), but we know each chunk is roughly the
+    # MediaRecorder timeslice × bitrate. Pass 0 additional and let the
+    # gate trigger only if the user is already over — the actual assembled
+    # file lands on disk in _do_assembly_background regardless.
+    await _enforce_quota(user_id, 0)
 
     try:
         session_data = {

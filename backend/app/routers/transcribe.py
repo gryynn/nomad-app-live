@@ -4,6 +4,7 @@ import httpx
 from app.models.schemas import TranscribeRequest
 from app.auth import get_current_user
 from app.routers.preferences import get_user_preferences, resolve_api_key
+from app.services import rate_limit
 from app.services.queue_manager import QueueManager
 from app.services.groq_service import GroqService, GroqFileTooLargeError
 from app.services.deepgram_service import DeepgramService
@@ -196,6 +197,15 @@ async def transcribe_session(
             detail=f"Invalid engine. Must be one of: {', '.join(valid_engines)}"
         )
 
+    # Rate limit per user (env: RATE_LIMIT_TRANSCRIBE_PER_HOUR, default 60).
+    allowed, retry_after = rate_limit.check(user["id"], "transcribe")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded for transcribe — retry in {retry_after}s.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     # Check if session exists and belongs to user
     try:
         async with httpx.AsyncClient() as client:
@@ -263,6 +273,15 @@ async def transcribe_chunk(
         prefs = await get_user_preferences(user["id"])
         if not prefs.auto_transcribe:
             return {"seq": seq, "text": "", "duration": 0, "segments": [], "skipped": True, "reason": "auto_transcribe disabled"}
+
+    # Rate limit per user (env: RATE_LIMIT_TRANSCRIBE_CHUNK_PER_HOUR, default 600).
+    allowed, retry_after = rate_limit.check(user["id"], "transcribe_chunk")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded for chunk transcribe — retry in {retry_after}s.",
+            headers={"Retry-After": str(retry_after)},
+        )
 
     groq_key = await resolve_api_key(user["id"], "groq")
 
