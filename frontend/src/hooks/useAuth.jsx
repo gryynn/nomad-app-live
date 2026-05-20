@@ -73,11 +73,27 @@ export function AuthProvider({ children }) {
   }, [applySupabaseSession]);
 
   const signUpWithPassword = useCallback(async (email, password) => {
-    if (!supabase) throw new Error("Supabase non configuré côté frontend (VITE_SUPABASE_*).");
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) throw error;
-    // If email confirm is required by the Supabase project, no session yet.
-    if (data.session) applySupabaseSession(data.session);
+    // Route sign-up through the backend so it can enforce SIGNUP_ALLOWLIST.
+    // The backend creates the user via Supabase Admin API and returns a real
+    // session — we apply it the same way we would for sign-in.
+    const base = import.meta.env.VITE_API_URL || "";
+    const resp = await fetch(`${base}/api/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!resp.ok) {
+      let detail = "";
+      try { detail = (await resp.json()).detail || ""; } catch (_) { detail = await resp.text(); }
+      throw new Error(detail || `Sign-up failed (${resp.status})`);
+    }
+    const data = await resp.json();
+    // Backend hands back access_token + user fields — applySupabaseSession
+    // expects a session-shaped object.
+    applySupabaseSession({
+      access_token: data.access_token,
+      user: { id: data.user_id, email: data.email },
+    });
     return data;
   }, [applySupabaseSession]);
 

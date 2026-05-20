@@ -54,6 +54,9 @@ app.include_router(attachments.router, prefix="/api")
 app.include_router(transcribe_stream.router, prefix="/api")
 app.include_router(mcp_server.router, prefix="/api")
 
+from app.routers import signup
+app.include_router(signup.router, prefix="/api")
+
 
 @app.get("/api/health")
 async def health():
