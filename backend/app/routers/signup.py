@@ -26,7 +26,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 
@@ -35,7 +35,7 @@ router = APIRouter(prefix="/signup", tags=["signup"])
 
 
 class SignupRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 
@@ -69,6 +69,11 @@ def _is_allowed(email: str, allowlist: list[str]) -> bool:
 
 @router.post("", response_model=SignupResponse)
 async def signup(req: SignupRequest):
+    # Minimal email shape check (full RFC validation lives in Supabase).
+    email = (req.email or "").strip()
+    if "@" not in email or "." not in email.split("@", 1)[1]:
+        raise HTTPException(status_code=400, detail="Invalid email format.")
+
     allowlist = _parse_allowlist()
     signup_open = os.environ.get("SIGNUP_OPEN", "").lower() == "true"
 
@@ -79,7 +84,7 @@ async def signup(req: SignupRequest):
             detail="Sign-up is disabled on this instance. Contact the admin.",
         )
 
-    if allowlist and not _is_allowed(req.email, allowlist):
+    if allowlist and not _is_allowed(email, allowlist):
         raise HTTPException(
             status_code=403,
             detail="This email is not in the sign-up allowlist for this instance.",
@@ -103,7 +108,7 @@ async def signup(req: SignupRequest):
             f"{SUPABASE_URL}/auth/v1/admin/users",
             headers=admin_headers,
             json={
-                "email": req.email,
+                "email": email,
                 "password": req.password,
                 "email_confirm": True,
             },
@@ -125,7 +130,7 @@ async def signup(req: SignupRequest):
                 "apikey": SUPABASE_SERVICE_KEY,
                 "Content-Type": "application/json",
             },
-            json={"email": req.email, "password": req.password},
+            json={"email": email, "password": req.password},
         )
         if signin_resp.status_code != 200:
             raise HTTPException(
@@ -139,5 +144,5 @@ async def signup(req: SignupRequest):
         access_token=tokens["access_token"],
         refresh_token=tokens["refresh_token"],
         user_id=user.get("id", ""),
-        email=user.get("email", req.email),
+        email=user.get("email", email),
     )
