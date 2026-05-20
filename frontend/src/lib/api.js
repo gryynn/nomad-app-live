@@ -337,3 +337,46 @@ export const transcribeChunk = (sessionId, seq, opts = {}) => {
 export const getPreferences = () => request("/api/preferences");
 export const setPreferences = (prefs) =>
   request("/api/preferences", { method: "PUT", body: JSON.stringify(prefs) });
+
+// Prompt templates
+export const listPromptTemplates = () => request("/api/prompts");
+export const createPromptTemplate = (body) =>
+  request("/api/prompts", { method: "POST", body: JSON.stringify(body) });
+export const updatePromptTemplate = (id, patch) =>
+  request(`/api/prompts/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const deletePromptTemplate = async (id) => {
+  const res = await fetch(`${BASE}/api/prompts/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Delete failed");
+  }
+};
+
+// AI outputs
+export const processSessionAI = (sessionId, templateId) =>
+  request("/api/ai/process", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, template_id: templateId }),
+  });
+export const listSessionAIOutputs = (sessionId) =>
+  request(`/api/ai/outputs?session_id=${encodeURIComponent(sessionId)}`);
+export const updateAIOutput = (outputId, editedText) =>
+  request(`/api/ai/outputs/${outputId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ output_text_edited: editedText }),
+  });
+export const deleteAIOutput = async (outputId) => {
+  const res = await fetch(`${BASE}/api/ai/outputs/${outputId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Delete failed");
+  }
+};
+export const rerunAIOutput = (outputId) =>
+  request(`/api/ai/outputs/${outputId}/rerun`, { method: "POST" });

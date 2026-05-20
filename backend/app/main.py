@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 import httpx
-from app.routers import sessions, tags, engines, upload, transcribe, audio, preferences, attachments, transcribe_stream, mcp_server
+from app.routers import sessions, tags, engines, upload, transcribe, audio, preferences, attachments, transcribe_stream, mcp_server, prompts, ai
 from app.auth import (
     get_current_user,
     get_oidc_config,
@@ -53,6 +53,8 @@ app.include_router(preferences.router, prefix="/api")
 app.include_router(attachments.router, prefix="/api")
 app.include_router(transcribe_stream.router, prefix="/api")
 app.include_router(mcp_server.router, prefix="/api")
+app.include_router(prompts.router, prefix="/api")
+app.include_router(ai.router, prefix="/api")
 
 from app.routers import signup
 app.include_router(signup.router, prefix="/api")

@@ -8,6 +8,8 @@ import { usePersistedState } from "./hooks/usePersistedState.js";
 import { useAuth } from "./hooks/useAuth.jsx";
 import { acquireMeetingStream, isSystemAudioSupported } from "./hooks/useSystemAudio.js";
 import Login from "./pages/Login.jsx";
+import PromptTemplatesModal from "./components/PromptTemplatesModal.jsx";
+import SessionAIPanel from "./components/SessionAIPanel.jsx";
 
 // ─── Helpers ──────────────────────────────────────────
 function formatDate(iso) {
@@ -108,12 +110,13 @@ function ThemeToggleButton() {
 // covers the heavier knobs: preferred engine, transcription API keys, and the
 // WhisperX self-hosted endpoint. The plaintext keys never come back from the
 // backend; the modal only knows which vendors are "configured" (api_keys_set).
-function SettingsModal({ prefs, onClose, onSave }) {
+function SettingsModal({ prefs, onClose, onSave, onOpenPrompts }) {
   const [engine, setEngine] = useState(prefs.preferred_engine || "auto");
   const [wynona, setWynona] = useState(prefs.wynona_endpoint || "");
   const [groqKey, setGroqKey] = useState("");
   const [deepgramKey, setDeepgramKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
+  const [openrouterKey, setOpenrouterKey] = useState("");
   const [busy, setBusy] = useState(false);
 
   const isSet = (name) => (prefs.api_keys_set || []).includes(name);
@@ -125,6 +128,7 @@ function SettingsModal({ prefs, onClose, onSave }) {
     if (groqKey.trim()) api_keys.groq = groqKey.trim();
     if (deepgramKey.trim()) api_keys.deepgram = deepgramKey.trim();
     if (openaiKey.trim()) api_keys.openai = openaiKey.trim();
+    if (openrouterKey.trim()) api_keys.openrouter = openrouterKey.trim();
     await onSave({
       preferred_engine: engine,
       wynona_endpoint: wynona.trim() || null,
@@ -197,6 +201,26 @@ function SettingsModal({ prefs, onClose, onSave }) {
           <p style={{ fontSize: "0.7rem", color: "var(--text-soft)", marginTop: 4 }}>
             Endpoint de ton instance WhisperX (GPU local). Activé quand le moteur préféré est <code>wynona</code>.
           </p>
+        </Section>
+
+        <Section label="Assistant IA (OpenRouter)">
+          <KeyField
+            label="OpenRouter"
+            placeholder={isSet("openrouter") ? "•••••• (configuré)" : "sk-or-…"}
+            value={openrouterKey}
+            onChange={setOpenrouterKey}
+          />
+          <p style={{ fontSize: "0.7rem", color: "var(--text-soft)", marginTop: 4 }}>
+            Une clé OpenRouter ouvre l'accès à Claude, GPT-5, Gemini, Llama et autres pour les <strong>prompts automatiques</strong>.
+            <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer" style={{ marginLeft: 4, color: "var(--accent)" }}>→ openrouter.ai/keys</a>
+          </p>
+          <button
+            type="button"
+            onClick={() => { onClose(); onOpenPrompts && onOpenPrompts(); }}
+            style={{ ...primaryBtn, background: "transparent", color: "var(--text)", border: "1px solid var(--border)", marginTop: 8 }}
+          >
+            Gérer les prompts automatiques →
+          </button>
         </Section>
 
         <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
@@ -312,6 +336,7 @@ function AppContent({ user, signOut }) {
     api_keys_set: [],
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [promptsOpen, setPromptsOpen] = useState(false);
   useEffect(() => {
     api.getPreferences().then((p) => setPrefs((prev) => ({ ...prev, ...p }))).catch(() => { /* keep defaults */ });
   }, []);
@@ -1871,6 +1896,7 @@ function AppContent({ user, signOut }) {
         <SettingsModal
           prefs={prefs}
           onClose={() => setSettingsOpen(false)}
+          onOpenPrompts={() => setPromptsOpen(true)}
           onSave={async (payload) => {
             try {
               await saveSettings(payload);
@@ -1879,6 +1905,13 @@ function AppContent({ user, signOut }) {
               setError(`Réglages: ${e.message || e}`);
             }
           }}
+        />
+      )}
+
+      {promptsOpen && (
+        <PromptTemplatesModal
+          tags={tags}
+          onClose={() => setPromptsOpen(false)}
         />
       )}
 
@@ -3087,6 +3120,12 @@ function AppContent({ user, signOut }) {
                         ))}
                       </div>
                     )}
+
+                    {/* Analyses IA */}
+                    <SessionAIPanel
+                      sessionId={expandedSession.id}
+                      hasTranscript={!!expandedSession.transcript}
+                    />
 
                     {/* Actions */}
                     <div className="actions">

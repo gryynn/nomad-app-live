@@ -29,7 +29,7 @@ BASE_URL = f"{SUPABASE_URL}/rest/v1"
 
 # Keys we accept under user_settings.api_keys. The set is intentionally
 # narrow to avoid users storing random secrets in this table.
-ALLOWED_KEY_NAMES = {"groq", "deepgram", "openai"}
+ALLOWED_KEY_NAMES = {"groq", "deepgram", "openai", "openrouter"}
 
 
 class Preferences(BaseModel):
@@ -87,6 +87,7 @@ async def resolve_api_key(user_id: str, vendor: str) -> Optional[str]:
         "groq": "GROQ_API_KEY",
         "deepgram": "DEEPGRAM_API_KEY",
         "openai": "OPENAI_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
     }.get(vendor)
     return os.environ.get(env_name, "") if env_name else None
 

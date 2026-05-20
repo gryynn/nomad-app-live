@@ -73,6 +73,63 @@ async def resolve_engine(engine: str, audio_url: str, has_deepgram: bool) -> str
     return "groq-turbo"
 
 
+async def _maybe_trigger_ai_on_tags(session_id: str, user_id: str) -> None:
+    """After a successful transcription, look up templates whose
+    `auto_trigger_tag_ids` overlap the session's tags and enqueue one AI job
+    per match. Idempotent on failure — never raises out."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            tags_resp = await client.get(
+                f"{BASE_URL}/session_tags",
+                headers=HEADERS,
+                params={
+                    "session_id": f"eq.{session_id}",
+                    "user_id": f"eq.{user_id}",
+                    "select": "tag_id",
+                },
+            )
+            if tags_resp.status_code != 200:
+                return
+            tag_ids = [r["tag_id"] for r in tags_resp.json()]
+            if not tag_ids:
+                return
+
+            # PostgREST array overlap: cs (contains) doesn't match overlap; use ov.
+            # auto_trigger_tag_ids && '{uuid1,uuid2}'
+            ov_value = "{" + ",".join(tag_ids) + "}"
+            tpls_resp = await client.get(
+                f"{BASE_URL}/prompt_templates",
+                headers=HEADERS,
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "enabled": "eq.true",
+                    "auto_trigger_tag_ids": f"ov.{ov_value}",
+                    "select": "id,name,prompt_text,model",
+                },
+            )
+            if tpls_resp.status_code != 200:
+                return
+            templates = tpls_resp.json()
+
+        if not templates:
+            return
+
+        from app.routers.ai import enqueue_ai_for_session
+        for tpl in templates:
+            try:
+                await enqueue_ai_for_session(
+                    session_id=session_id,
+                    user_id=user_id,
+                    template=tpl,
+                    trigger_source="auto_tag",
+                )
+                print(f"[AI-AUTO] session={session_id} template={tpl['name']} enqueued")
+            except Exception as e:
+                print(f"[AI-AUTO] template {tpl.get('id')} failed: {e}")
+    except Exception as e:
+        print(f"[AI-AUTO] lookup failed for session={session_id}: {e}")
+
+
 async def process_transcription(
     job_id: str,
     session_id: str,
@@ -80,6 +137,7 @@ async def process_transcription(
     audio_url: str,
     groq_key: str | None,
     deepgram_key: str | None,
+    user_id: str | None = None,
 ):
     try:
         queue_manager.update_status(job_id, "processing")
@@ -130,6 +188,10 @@ async def process_transcription(
         else:
             raise ValueError(f"Unknown engine: {resolved}")
 
+        # Auto-fire AI templates whose trigger tags overlap with this session's tags.
+        if user_id:
+            await _maybe_trigger_ai_on_tags(session_id, user_id)
+
     except Exception as e:
         queue_manager.update_status(job_id, "failed")
         error_msg = str(e)
@@ -163,7 +225,7 @@ async def enqueue_auto_transcribe(session_id: str, audio_url: str, user_id: str)
 
     job_id = queue_manager.add_job(session_id, "auto")
     asyncio.create_task(
-        process_transcription(job_id, session_id, "auto", audio_url, groq_key, deepgram_key)
+        process_transcription(job_id, session_id, "auto", audio_url, groq_key, deepgram_key, user_id)
     )
     print(f"[TRANSCRIBE] auto-enqueued session={session_id} job={job_id}")
 
@@ -251,6 +313,7 @@ async def transcribe_session(
         audio_url,
         groq_key,
         deepgram_key,
+        user["id"],
     )
 
     return {
