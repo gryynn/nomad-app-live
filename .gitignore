@@ -38,3 +38,4 @@ data/
 
 # Deploy logs (rotated by hand, not by git)
 deploy.log
+deploy.log*

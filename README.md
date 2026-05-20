@@ -138,6 +138,24 @@ Two auth paths are supported and **can coexist**:
 
 Each user gets their own data slice via Postgres RLS — no cross-user reads, even with the same Supabase project.
 
+### Closing the door behind you
+
+Out of the box `auth.signUp` is public — anyone who knows your URL can create an account and start burning your disk + transcription quotas. For a real self-host, close the front door:
+
+1. **Supabase Dashboard → Authentication → Providers → Email**: set "Enable Signups" to **off** (so the public Supabase endpoint can't be used to bypass you).
+2. **Backend `.env`** — list who's allowed to create accounts:
+   ```env
+   # Comma-separated, mix of exact emails and @domain entries (case-insensitive).
+   SIGNUP_ALLOWLIST=me@example.com,@my-company.com,partner@another.org
+   # Set true ONLY for public demo deployments.
+   SIGNUP_OPEN=false
+   ```
+3. Sign-up requests now hit `POST /api/signup`, get filtered by the allowlist, then call the Supabase Admin API server-side. Existing users keep signing in normally (`/auth/v1/token`); only **new account creation** is gated.
+
+### Per-user API keys (multi-tenant)
+
+When several people share one instance you don't want them all spending the operator's Groq/Deepgram budget. Each user can paste their own keys in **Settings → API keys** (PWA) — they're stored in `app_nomad.user_settings.api_keys` (JSONB, RLS owner-only, **write-only** from the client). At transcription time, `resolve_api_key(user_id, vendor)` looks up the user's key first and falls back to the host env (`GROQ_API_KEY`, `DEEPGRAM_API_KEY`, …) only if none is set. The env keys stay the "default tenant" for single-user installs.
+
 ---
 
 ## Mobile companion (Android)
