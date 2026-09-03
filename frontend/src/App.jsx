@@ -2923,9 +2923,11 @@ function AppContent({ user, signOut }) {
                       {" · "}{formatDate(s.created_at)}
                     </div>
                   </div>
-                  {/* Tags — right side: selected only + add button */}
+                  {/* Tags — right side: selected only + add button.
+                      The obsidian destination tag is skipped here — it has a
+                      dedicated one-gesture quick action right after. */}
                   <div className="header-tags" onClick={(e) => e.stopPropagation()}>
-                    {(s.tags || []).map((tag) => (
+                    {(s.tags || []).filter((tag) => tag.id !== obsidianTag?.id).map((tag) => (
                       <span
                         key={tag.id}
                         className="tag-chip selected"
@@ -2936,11 +2938,23 @@ function AppContent({ user, signOut }) {
                         <span className="tag-remove">✕</span>
                       </span>
                     ))}
+                    {obsidianTag && (() => {
+                      const toObsidian = (s.tags || []).some((t) => t.id === obsidianTag.id);
+                      return (
+                        <span
+                          className={`tag-chip obsidian-chip ${toObsidian ? "selected" : ""}`}
+                          onClick={() => toggleSessionTag(s.id, obsidianTag.id, (s.tags || []).map((t) => t.id))}
+                          title={toObsidian ? "Retirer de la file Obsidian" : "Envoyer vers Obsidian"}
+                        >
+                          {obsidianTag.emoji} Obsidian{toObsidian ? " ✓" : ""}
+                        </span>
+                      );
+                    })()}
                     <div className="tag-add-wrap">
                       <span
                         className="tag-chip tag-create"
                         onClick={() => { setTagPopoverId(tagPopoverId === s.id ? null : s.id); setTagPopoverSearch(""); }}
-                      >+</span>
+                      >{(s.tags || []).length === 0 ? "+ tag" : "+"}</span>
                       {tagPopoverId === s.id && (() => {
                         const available = tags.filter((t) => !(s.tags || []).find((st) => st.id === t.id));
                         const filtered = tagPopoverSearch

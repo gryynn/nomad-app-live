@@ -579,13 +579,22 @@ label {
 }
 .tag-chip.tag-create {
   border-style: dashed;
-  opacity: 0.4;
+  opacity: 0.7;
   font-size: 11px;
 }
 .tag-chip.tag-create:hover {
-  opacity: 0.8;
+  opacity: 1;
   border-color: var(--accent);
   color: var(--accent);
+}
+.tag-chip.obsidian-chip {
+  border-style: dashed;
+  opacity: 0.9;
+  font-size: 11px;
+}
+.tag-chip.obsidian-chip.selected {
+  border-style: solid;
+  opacity: 1;
 }
 
 /* Engine selector */
