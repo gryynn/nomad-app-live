@@ -65,9 +65,25 @@ async function request(path, options = {}) {
 export const createSession = (data) =>
   request("/api/sessions", { method: "POST", body: JSON.stringify(data) });
 
-export const getSessions = (params = {}) => {
+export const getSessions = async (params = {}) => {
   const qs = new URLSearchParams(params).toString();
-  return request(`/api/sessions${qs ? `?${qs}` : ""}`);
+  const url = `${BASE}/api/sessions${qs ? `?${qs}` : ""}`;
+  console.log(`[API] GET ${url}`);
+  const res = await fetch(url, { headers: { ...getAuthHeaders() } });
+  if (res.status === 401) {
+    console.warn("[API] 401 — session expired, signing out");
+    localStorage.removeItem("nomad_token");
+    window.location.reload();
+    throw new Error("Session expirée");
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || res.statusText);
+  }
+  const sessions = await res.json();
+  const totalHeader = res.headers.get("X-Total-Count");
+  const total = totalHeader != null ? Number(totalHeader) : sessions.length;
+  return { sessions, total };
 };
 
 export const getSession = (id) => request(`/api/sessions/${id}`);

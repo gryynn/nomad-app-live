@@ -1,6 +1,6 @@
 import httpx
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Response
 from typing import Optional, List
 from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY, PUBLIC_BACKEND_URL
 from app.auth import get_current_user
@@ -94,6 +94,7 @@ async def list_sessions(
     created_before: Optional[str] = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    resp: Response = None,
     user=Depends(get_current_user),
 ):
     """List sessions with optional filters"""
@@ -123,8 +124,22 @@ async def list_sessions(
             params["created_at"] = f"lte.{created_before}"
 
         async with httpx.AsyncClient() as client:
-            # If tag filter, first resolve session IDs from session_tags
-            if tag:
+            # Tag filter. Two forms:
+            #   * `tag=__none__` — reserved value: sessions with NO row in
+            #     session_tags (the "untagged backlog" filter).
+            #   * `tag=<id>[,<id>…]` — the existing positive filter.
+            if tag == "__none__":
+                tag_resp = await client.get(
+                    f"{BASE_URL}/session_tags",
+                    headers=HEADERS,
+                    params={"select": "session_id"},
+                )
+                tag_resp.raise_for_status()
+                tagged_ids = sorted({r["session_id"] for r in tag_resp.json()})
+                if tagged_ids:
+                    params["id"] = f"not.in.({','.join(tagged_ids)})"
+                # No tagged sessions → every session is untagged, no id filter.
+            elif tag:
                 tag_ids = [t.strip() for t in tag.split(",")]
                 tag_param = f"eq.{tag_ids[0]}" if len(tag_ids) == 1 else f"in.({','.join(tag_ids)})"
                 tag_resp = await client.get(
@@ -135,8 +150,30 @@ async def list_sessions(
                 tag_resp.raise_for_status()
                 ids = list(set(r["session_id"] for r in tag_resp.json()))
                 if not ids:
+                    if resp is not None:
+                        resp.headers["X-Total-Count"] = "0"
                     return []
                 params["id"] = f"in.({','.join(ids)})"
+
+            # Total matching count (for the "N résultats" indicator). Same
+            # filters, minus pagination, via PostgREST's count=exact header.
+            if resp is not None:
+                try:
+                    count_params = {
+                        k: v for k, v in params.items()
+                        if k not in ("limit", "offset", "order", "select")
+                    }
+                    count_params["select"] = "id"
+                    count_resp = await client.get(
+                        f"{BASE_URL}/sessions",
+                        headers={**HEADERS, "Prefer": "count=exact"},
+                        params=count_params,
+                    )
+                    content_range = count_resp.headers.get("Content-Range", "")
+                    if "/" in content_range:
+                        resp.headers["X-Total-Count"] = content_range.split("/")[1]
+                except Exception:
+                    pass  # count is best-effort; never break the list
 
             response = await client.get(
                 f"{BASE_URL}/sessions",
