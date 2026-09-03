@@ -543,6 +543,8 @@ function AppContent({ user, signOut }) {
   const [filterStatus, setFilterStatus] = usePersistedState("nomad-filter-status", "all");
   const [filterSearch, setFilterSearch] = usePersistedState("nomad-filter-search", "");
   const [filterTagIds, setFilterTagIds] = usePersistedState("nomad-filter-tags", []);
+  const [filterUntagged, setFilterUntagged] = usePersistedState("nomad-filter-untagged", false);
+  const [sessionTotal, setSessionTotal] = useState(null);
   const [filterTime, setFilterTime] = usePersistedState("nomad-filter-time", "all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterTagsExpanded, setFilterTagsExpanded] = useState(false);
@@ -595,12 +597,14 @@ function AppContent({ user, signOut }) {
       const st = filters.status ?? filterStatus;
       const sq = filters.search ?? filterSearch;
       const stags = filters.tags ?? filterTagIds;
+      const suntagged = filters.untagged ?? filterUntagged;
       const stime = filters.time ?? filterTime;
       const sDateFrom = filters.dateFrom ?? filterDateFrom;
       const sDateTo = filters.dateTo ?? filterDateTo;
       if (st && st !== "all") params.status = st;
       if (sq) params.search = sq;
-      if (stags && stags.length > 0) params.tag = stags.join(",");
+      if (suntagged) params.tag = "__none__";
+      else if (stags && stags.length > 0) params.tag = stags.join(",");
       // Date range takes priority over preset
       if (sDateFrom) {
         params.created_after = new Date(sDateFrom).toISOString();
@@ -612,12 +616,13 @@ function AppContent({ user, signOut }) {
         params.created_before = new Date(sDateTo + "T23:59:59").toISOString();
       }
       const data = await api.getSessions(params);
-      setSessions(data);
+      setSessions(data.sessions);
+      setSessionTotal(data.total);
     } catch (e) {
       console.error("Failed to load sessions:", e);
       setError(`Sessions: ${e.message}`);
     }
-  }, [filterStatus, filterSearch, filterTagIds, filterTime, filterDateFrom, filterDateTo]);
+  }, [filterStatus, filterSearch, filterTagIds, filterUntagged, filterTime, filterDateFrom, filterDateTo]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -646,7 +651,7 @@ function AppContent({ user, signOut }) {
     // Skip on initial mount (loading still true)
     if (loading) return;
     loadSessions();
-  }, [filterStatus, filterTagIds, filterTime, filterDateFrom, filterDateTo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filterStatus, filterTagIds, filterUntagged, filterTime, filterDateFrom, filterDateTo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading) return;
@@ -1966,7 +1971,12 @@ function AppContent({ user, signOut }) {
     filterSearch !== "",
     filterTime !== "all" || filterDateFrom || filterDateTo,
     filterTagIds.length > 0,
+    filterUntagged,
   ].filter(Boolean).length;
+
+  // Destination tag driving the downstream note pipeline (ADR-20). Resolved
+  // by name so the one-gesture quick action works even before any seed runs.
+  const obsidianTag = tags.find((t) => t.name.toLowerCase() === "obsidian");
 
   // ═══════════════════════════════════════════════════
   // RENDER
@@ -2715,18 +2725,79 @@ function AppContent({ user, signOut }) {
       <div className="section">
         <div className="section-title clickable" onClick={() => setSessionsOpen((v) => !v)}>
           <span className={`section-chevron ${sessionsOpen ? "open" : ""}`}>&#9656;</span>
-          Mes sessions ({sessions.length})
+          Mes sessions ({sessionTotal != null ? sessionTotal : sessions.length})
           {activeFilterCount > 0 && (
             <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 4, textTransform: "none", letterSpacing: 0 }}>
               {activeFilterCount} filtre{activeFilterCount > 1 ? "s" : ""}
-              <span onClick={(e) => { e.stopPropagation(); setFilterStatus("all"); setFilterSearch(""); setFilterTagIds([]); setFilterTime("all"); setFilterDateFrom(""); setFilterDateTo(""); }} style={{ cursor: "pointer", marginLeft: 2 }}>✕</span>
+              <span onClick={(e) => { e.stopPropagation(); setFilterStatus("all"); setFilterSearch(""); setFilterTagIds([]); setFilterUntagged(false); setFilterTime("all"); setFilterDateFrom(""); setFilterDateTo(""); }} style={{ cursor: "pointer", marginLeft: 2 }}>✕</span>
             </span>
           )}
         </div>
 
         {sessionsOpen && (
           <>
-            {/* Collapsible filter bar */}
+            {/* Tag filters — always visible (discoverability: no "third click") */}
+            <div className="filter-chips tag-filter-row">
+              <button
+                className={`filter-chip ${filterUntagged ? "active" : ""}`}
+                onClick={() => { setFilterUntagged(!filterUntagged); setFilterTagIds([]); }}
+              >
+                Sans tag
+              </button>
+              {(() => {
+                const VISIBLE_COUNT = 4;
+                // Show most-used tags first (session_count desc), not first
+                // alphabetically — the handful that matter are at the front.
+                const sorted = [...tags].sort((a, b) => (b.session_count || 0) - (a.session_count || 0));
+                const visibleTags = filterTagsExpanded
+                  ? sorted
+                  : sorted.filter((tag, i) => i < VISIBLE_COUNT || filterTagIds.includes(tag.id));
+                const hiddenCount = sorted.length - visibleTags.length;
+                const hasMore = hiddenCount > 0;
+                return (
+                  <>
+                    {visibleTags.map((tag) => (
+                      <button
+                        key={tag.id}
+                        className={`filter-chip ${filterTagIds.includes(tag.id) ? "active" : ""}`}
+                        onClick={() => {
+                          setFilterTagIds((prev) =>
+                            prev.includes(tag.id) ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
+                          );
+                          setFilterUntagged(false);
+                        }}
+                      >
+                        {tag.emoji} {tag.name}
+                        {tag.session_count > 0 && <span style={{ opacity: 0.5 }}> {tag.session_count}</span>}
+                      </button>
+                    ))}
+                    {hasMore && !filterTagsExpanded && (
+                      <button
+                        className="filter-chip"
+                        onClick={() => setFilterTagsExpanded(true)}
+                        style={{ fontStyle: "italic" }}
+                      >
+                        +{hiddenCount}
+                      </button>
+                    )}
+                    {filterTagsExpanded && sorted.length > VISIBLE_COUNT && (
+                      <button
+                        className="filter-chip"
+                        onClick={() => setFilterTagsExpanded(false)}
+                        style={{ fontStyle: "italic" }}
+                      >
+                        −
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
+              {sessionTotal != null && (
+                <span className="filter-result-count">{sessionTotal} résultat{sessionTotal > 1 ? "s" : ""}</span>
+              )}
+            </div>
+
+            {/* Collapsible filter bar (search, time, status) */}
             <div className="filter-toggle" onClick={() => setFiltersOpen((v) => !v)}>
               <span className={`section-chevron ${filtersOpen ? "open" : ""}`}>&#9656;</span>
               <span>Filtres</span>
@@ -2806,56 +2877,11 @@ function AppContent({ user, signOut }) {
                     >
                       {st === "all" ? "Tout" : st}
                     </button>
-                  ))}
+                    ))}
                 </div>
-                {/* Tags — single row with "+" expander */}
-                {tags.length > 0 && (() => {
-                  const VISIBLE_COUNT = 4;
-                  // Always show active filter tags + first N
-                  const visibleTags = filterTagsExpanded
-                    ? tags
-                    : tags.filter((tag, i) => i < VISIBLE_COUNT || filterTagIds.includes(tag.id));
-                  const hiddenCount = tags.length - visibleTags.length;
-                  const hasMore = hiddenCount > 0;
-                  return (
-                    <div className="filter-chips">
-                      {visibleTags.map((tag) => (
-                        <button
-                          key={tag.id}
-                          className={`filter-chip ${filterTagIds.includes(tag.id) ? "active" : ""}`}
-                          onClick={() => {
-                            setFilterTagIds((prev) =>
-                              prev.includes(tag.id) ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
-                            );
-                          }}
-                        >
-                          {tag.emoji} {tag.name}
-                          {tag.session_count > 0 && <span style={{ opacity: 0.5 }}> {tag.session_count}</span>}
-                        </button>
-                      ))}
-                      {hasMore && !filterTagsExpanded && (
-                        <button
-                          className="filter-chip"
-                          onClick={() => setFilterTagsExpanded(true)}
-                          style={{ fontStyle: "italic" }}
-                        >
-                          +{hiddenCount}
-                        </button>
-                      )}
-                      {filterTagsExpanded && tags.length > VISIBLE_COUNT && (
-                        <button
-                          className="filter-chip"
-                          onClick={() => setFilterTagsExpanded(false)}
-                          style={{ fontStyle: "italic" }}
-                        >
-                          −
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()}
               </div>
             )}
+
 
             {loading && <div className="loading">Chargement...</div>}
 
