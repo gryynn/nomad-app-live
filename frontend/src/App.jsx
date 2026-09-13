@@ -488,6 +488,15 @@ function AppContent({ user, signOut }) {
   const recMimeTypeRef = useRef("audio/webm");
   const recNotesTextRef = useRef(""); // mirror for timer access
 
+  // Mobile resilience refs — wake lock keeps screen on so MediaRecorder isn't
+  // throttled/suspended when the user puts the phone in their pocket. The
+  // visibility/pagehide handlers force an extra chunk flush before the tab
+  // gets backgrounded or killed, so we lose at most one timeslice.
+  const wakeLockRef = useRef(null);
+  const visibilityHandlerRef = useRef(null);
+  const pageHideHandlerRef = useRef(null);
+  const [recBackgroundWarning, setRecBackgroundWarning] = useState(false);
+
   // Recovery state
   const [recoveryData, setRecoveryData] = useState(null);
 
@@ -985,6 +994,18 @@ function AppContent({ user, signOut }) {
         stream.getTracks().forEach((t) => t.stop());
         displayCleanupRef.current?.();
         displayCleanupRef.current = null;
+        // Release mobile resilience handles
+        try { await wakeLockRef.current?.release?.(); } catch (_) {}
+        wakeLockRef.current = null;
+        if (visibilityHandlerRef.current) {
+          document.removeEventListener("visibilitychange", visibilityHandlerRef.current);
+          visibilityHandlerRef.current = null;
+        }
+        if (pageHideHandlerRef.current) {
+          window.removeEventListener("pagehide", pageHideHandlerRef.current);
+          pageHideHandlerRef.current = null;
+        }
+        setRecBackgroundWarning(false);
         if (cancelledRef.current) {
           cancelledRef.current = false;
           // Clean up chunk data on cancel
@@ -1030,6 +1051,55 @@ function AppContent({ user, signOut }) {
       cancelledRef.current = false;
       startTimeRef.current = Date.now();
 
+      // Mobile resilience: keep screen on so the browser doesn't throttle or
+      // suspend MediaRecorder when the user puts the phone in their pocket.
+      // Without this, Android Chrome stops feeding ondataavailable after ~30s
+      // and the user comes back to a 30s recording instead of 15min. See the
+      // bug history at nomad-session-2026-05-23.
+      try {
+        if ("wakeLock" in navigator) {
+          wakeLockRef.current = await navigator.wakeLock.request("screen");
+          console.log("[REC] wakeLock acquired");
+          wakeLockRef.current.addEventListener?.("release", () => {
+            console.warn("[REC] wakeLock released by system");
+          });
+        }
+      } catch (wlErr) {
+        console.warn("[REC] wakeLock unavailable:", wlErr?.message);
+      }
+
+      // visibilitychange: force a chunk flush + warn the user when the tab is
+      // about to be backgrounded. requestData() makes the recorder emit
+      // ondataavailable immediately, so the next flushTimer tick (or pagehide)
+      // has the latest bytes.
+      const onVisChange = () => {
+        const rec = mediaRecorderRef.current;
+        if (document.visibilityState === "hidden") {
+          if (rec && rec.state === "recording") {
+            try { rec.requestData(); } catch (_) {}
+          }
+          setRecBackgroundWarning(true);
+        } else if (document.visibilityState === "visible") {
+          // wakeLock auto-releases when the tab is hidden; re-acquire on return.
+          if (isRecording && "wakeLock" in navigator && !wakeLockRef.current) {
+            navigator.wakeLock.request("screen").then((wl) => {
+              wakeLockRef.current = wl;
+              console.log("[REC] wakeLock re-acquired");
+            }).catch(() => {});
+          }
+        }
+      };
+      const onPageHide = () => {
+        const rec = mediaRecorderRef.current;
+        if (rec && rec.state === "recording") {
+          try { rec.requestData(); } catch (_) {}
+        }
+      };
+      document.addEventListener("visibilitychange", onVisChange);
+      window.addEventListener("pagehide", onPageHide);
+      visibilityHandlerRef.current = onVisChange;
+      pageHideHandlerRef.current = onPageHide;
+
       // Progressive chunk save: init
       // Use a UUID so it can be inserted directly into app_nomad.sessions.id
       // (which is UUID-typed). /assemble previously failed with a non-UUID id.
@@ -1043,8 +1113,11 @@ function AppContent({ user, signOut }) {
       setWhisperText("");
       offline.startActiveRecording(recId, captureMode, mimeType || "audio/webm");
 
-      // Flush timer: every 30s, snapshot chunks → IDB + upload
+      // Flush timer: every 10s, snapshot chunks → IDB + upload. Shorter window
+      // = less audio lost if the tab is killed by Android between flushes.
       flushTimerRef.current = setInterval(() => {
+        // Force the recorder to emit its buffered bytes before we snapshot.
+        try { mediaRecorderRef.current?.requestData?.(); } catch (_) {}
         if (chunksRef.current.length === 0) return;
         const snapshot = new Blob(chunksRef.current, { type: recMimeTypeRef.current });
         chunksRef.current = []; // free RAM
@@ -1056,7 +1129,7 @@ function AppContent({ user, signOut }) {
           notes: recNotesTextRef.current,
         });
         console.log(`[FLUSH] chunk #${seq}, ${(snapshot.size / 1024).toFixed(0)} KB`);
-      }, 30_000);
+      }, 10_000);
 
       timerRef.current = setInterval(() => {
         setRecTime(Date.now() - startTimeRef.current);
@@ -1079,6 +1152,7 @@ function AppContent({ user, signOut }) {
         // Resume flush timer
         const recId = recordingIdRef.current;
         flushTimerRef.current = setInterval(() => {
+          try { mediaRecorderRef.current?.requestData?.(); } catch (_) {}
           if (chunksRef.current.length === 0) return;
           const snapshot = new Blob(chunksRef.current, { type: recMimeTypeRef.current });
           chunksRef.current = [];
@@ -1087,7 +1161,7 @@ function AppContent({ user, signOut }) {
           chunkUploader.uploadChunk(recId, seq, snapshot);
           offline.updateActiveRecordingMeta(recId, { notes: recNotesTextRef.current });
           console.log(`[FLUSH] chunk #${seq}, ${(snapshot.size / 1024).toFixed(0)} KB`);
-        }, 30_000);
+        }, 10_000);
         if (recMode === "live") speech.resume("fr-FR");
         setIsPaused(false);
       } else {
@@ -2330,6 +2404,13 @@ function AppContent({ user, signOut }) {
                   />
                 </div>
                 {isPaused && <div style={{ textAlign: "center", color: "var(--orange)", fontSize: 13, padding: "4px 0" }}>En pause</div>}
+
+                {recBackgroundWarning && (
+                  <div style={{ textAlign: "center", color: "var(--orange)", fontSize: 12, padding: "6px 10px", lineHeight: 1.3 }}>
+                    ⚠️ Garde l'écran allumé et NOMAD au premier plan — sur mobile,
+                    le navigateur suspend l'enregistrement en arrière-plan.
+                  </div>
+                )}
 
                 {recMode === "live" && (
                   <div>

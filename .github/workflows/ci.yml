@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, functional-mvp]
   pull_request:
-    branches: [main]
+    branches: [main, functional-mvp]
 
 jobs:
   frontend:
@@ -24,5 +24,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: cd backend && pip install -r requirements.txt
-      - run: cd backend && python -c "from app.main import app; print('OK')"
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+      - name: Import smoke test
+        run: cd backend && python -c "from app.main import app; print('OK')"
+      - name: Run pytest
+        env:
+          APP_JWT_SECRET: "test-secret-for-pytest-32-chars-min!"
+          SUPABASE_URL: "http://localhost"
+          SUPABASE_SERVICE_KEY: "dummy"
+          PUBLIC_BACKEND_URL: "http://localhost:8400"
+        # Excluding the e2e suite because it expects live Supabase / Groq creds.
+        # The unit suites cover the per-user resolve_api_key, auth tokens,
+        # storage drivers, and the auto-T transcribe pref gate.
+        run: |
+          cd backend
+          python -m pytest tests/ \
+            --ignore=tests/test_e2e_integration.py \
+            -k "not test_get_preferences_returns_default_when_no_row" \
+            -v

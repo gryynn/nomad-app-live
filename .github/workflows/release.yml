@@ -1,0 +1,50 @@
+name: Release
+
+# Triggered when you push a tag like v0.21.0. Generates a GitHub Release
+# whose body is auto-built from commits since the previous tag — the
+# "release-drafter" convention, but resolved entirely server-side so we
+# don't need to maintain a release_notes.md.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build release notes from git log
+        id: notes
+        run: |
+          prev=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [ -z "$prev" ]; then
+            range="HEAD"
+            header="Initial release."
+          else
+            range="${prev}..${GITHUB_REF_NAME}"
+            header="Changes since [${prev}](https://github.com/${{ github.repository }}/releases/tag/${prev})."
+          fi
+          {
+            echo "## ${GITHUB_REF_NAME}"
+            echo
+            echo "$header"
+            echo
+            git log --pretty=format:"- %s (%h)" "$range"
+          } > release-notes.md
+          echo "path=release-notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: ${{ steps.notes.outputs.path }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') }}
