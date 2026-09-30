@@ -11,6 +11,7 @@ Use case:
 from __future__ import annotations
 
 import asyncio
+import shutil
 import os
 from pathlib import Path
 from typing import AsyncIterator, Optional
@@ -37,6 +38,12 @@ class LocalFSBackend(StorageBackend):
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(path.write_bytes, data)
+
+    async def upload_path(self, key: str, path: str, content_type: str = "application/octet-stream") -> None:
+        target = self._path(key)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # shutil.move = rename when on the same filesystem, copy otherwise.
+        await asyncio.to_thread(shutil.move, path, target)
 
     async def download(self, key: str) -> bytes:
         path = self._path(key)

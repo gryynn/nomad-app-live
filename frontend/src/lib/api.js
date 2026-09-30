@@ -278,45 +278,79 @@ export const uploadAudio = async (file, onProgress) => {
     }
   }
 
-  // ── Strategy 3: Backend proxy (with progress) ──
-  console.log(`[UPLOAD] Falling back to backend proxy...`);
-  const proxyAuthHeaders = getAuthHeaders();
+  // ── Strategy 3: Chunked upload through the backend ──
+  // One big POST dies at Cloudflare's 100 MB body cap and restarts from zero
+  // on any hiccup. Byte slices of IMPORT_CHUNK_BYTES each go in their own
+  // request, retried with backoff; the backend concatenates them.
+  console.log(`[UPLOAD] Chunked upload via backend...`);
+  return uploadChunked(file, sessionId, onProgress);
+};
+
+const IMPORT_CHUNK_BYTES = 8 * 1024 * 1024;
+const IMPORT_CHUNK_RETRIES = 5;
+
+function sendImportChunk(sessionId, idx, blob, onChunkProgress) {
   return new Promise((resolve, reject) => {
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", blob, `chunk_${idx}`);
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${BASE}/api/upload`);
-    // Inject auth header for backend proxy
-    if (proxyAuthHeaders.Authorization) {
-      xhr.setRequestHeader("Authorization", proxyAuthHeaders.Authorization);
-    }
-
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && onProgress) {
-        onProgress(Math.round((e.loaded / e.total) * 100));
-      }
-    };
-
+    xhr.open("POST", `${BASE}/api/upload/import/chunk/${sessionId}/${idx}`);
+    // Read the token per chunk: supabase-js may have refreshed it meanwhile.
+    const { Authorization } = getAuthHeaders();
+    if (Authorization) xhr.setRequestHeader("Authorization", Authorization);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onChunkProgress(e.loaded); };
     xhr.onload = () => {
-      try {
-        const data = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          console.log(`[UPLOAD] Backend proxy OK`, data);
-          resolve(data);
-        } else {
-          reject(new Error(data.detail || `Upload failed (${xhr.status})`));
-        }
-      } catch {
-        reject(new Error(`Erreur serveur (${xhr.status}).`));
-      }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      let detail = "";
+      try { detail = JSON.parse(xhr.responseText).detail || ""; } catch { /* not JSON */ }
+      const err = new Error(detail || `Erreur serveur (${xhr.status})`);
+      // 4xx other than 408/429 won't get better by retrying.
+      err.fatal = xhr.status >= 400 && xhr.status < 500 && xhr.status !== 408 && xhr.status !== 429;
+      reject(err);
     };
-
-    xhr.onerror = () => reject(new Error("Connexion perdue pendant upload."));
-    xhr.ontimeout = () => reject(new Error("Upload timeout — essayez avec un fichier plus petit."));
-    xhr.timeout = 600000; // 10 min
+    xhr.onerror = () => reject(new Error("Connexion perdue pendant l'upload."));
+    xhr.ontimeout = () => reject(new Error("Upload timeout."));
+    xhr.timeout = 300000;
     xhr.send(formData);
   });
-};
+}
+
+async function uploadChunked(file, sessionId, onProgress) {
+  const chunkCount = Math.max(1, Math.ceil(file.size / IMPORT_CHUNK_BYTES));
+  let sentBytes = 0;
+  const report = (inFlight) => {
+    if (onProgress && file.size) {
+      onProgress(Math.min(99, Math.floor(((sentBytes + inFlight) / file.size) * 100)));
+    }
+  };
+  for (let idx = 0; idx < chunkCount; idx++) {
+    const blob = file.slice(idx * IMPORT_CHUNK_BYTES, (idx + 1) * IMPORT_CHUNK_BYTES);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await sendImportChunk(sessionId, idx, blob, report);
+        break;
+      } catch (e) {
+        if (e.fatal || attempt >= IMPORT_CHUNK_RETRIES) throw e;
+        console.warn(`[UPLOAD] chunk ${idx} attempt ${attempt} failed: ${e.message}`);
+        report(0);
+        await new Promise((r) => setTimeout(r, 2000 * 2 ** (attempt - 1)));
+      }
+    }
+    sentBytes += blob.size;
+    report(0);
+  }
+  const result = await request("/api/upload/import/complete", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: sessionId,
+      filename: file.name,
+      chunk_count: chunkCount,
+      size: file.size,
+    }),
+  });
+  if (onProgress) onProgress(100);
+  return result;
+}
 
 // Tags
 export const getTags = () => request("/api/tags");

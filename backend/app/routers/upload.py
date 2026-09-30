@@ -1,6 +1,9 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel
 import httpx
+import asyncio
+import shutil
+import time
 import uuid
 import tempfile
 import subprocess
@@ -289,6 +292,155 @@ async def upload_audio_legacy(file: UploadFile = File(...), user=Depends(get_cur
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+# ─── Chunked import ──────────────────────────────────────────────────────────
+# A browser import used to be one multipart POST. Behind Cloudflare that caps
+# files at 100 MB, gives no retry, and a backend restart kills the whole
+# transfer. The file is now sliced client-side into byte ranges, each one
+# stored on disk here (idempotent per index, so a retry just overwrites), then
+# concatenated by /import/complete. Byte slices, not audio chunks: no ffmpeg,
+# the result is bit-identical to the source file.
+
+IMPORT_CHUNK_MAX_BYTES = 16 * 1024 * 1024
+IMPORT_MAX_CHUNKS = 10_000
+IMPORT_STAGING_MAX_AGE_S = 24 * 3600
+
+
+def _import_staging_root() -> Path:
+    explicit = os.environ.get("IMPORT_STAGING_DIR")
+    if explicit:
+        return Path(explicit)
+    # Next to the local audio store when there is one, so staged chunks
+    # survive a container restart and the final move is a rename.
+    local = os.environ.get("STORAGE_LOCAL_PATH")
+    if local:
+        return Path(local) / ".import-staging"
+    return Path(tempfile.gettempdir()) / "nomad-import-staging"
+
+
+def _import_dir(user_id: str, session_id: str) -> Path:
+    try:
+        uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id")
+    return _import_staging_root() / user_id / session_id
+
+
+def _sweep_stale_imports(user_id: str) -> None:
+    """Drop this user's abandoned imports (cancelled tab, lost connection)."""
+    root = _import_staging_root() / user_id
+    if not root.is_dir():
+        return
+    now = time.time()
+    for d in root.iterdir():
+        try:
+            if now - d.stat().st_mtime > IMPORT_STAGING_MAX_AGE_S:
+                shutil.rmtree(d, ignore_errors=True)
+        except OSError:
+            pass
+
+
+class ImportCompleteRequest(BaseModel):
+    session_id: str
+    filename: str
+    chunk_count: int
+    size: int
+
+
+@router.post("/import/chunk/{session_id}/{idx}")
+async def import_chunk(
+    session_id: str,
+    idx: int,
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    if not 0 <= idx < IMPORT_MAX_CHUNKS:
+        raise HTTPException(status_code=400, detail="Invalid chunk index")
+    d = _import_dir(user["id"], session_id)
+    data = await file.read(IMPORT_CHUNK_MAX_BYTES + 1)
+    if len(data) > IMPORT_CHUNK_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Chunk too large")
+    if idx == 0:
+        _sweep_stale_imports(user["id"])
+        await _enforce_quota(user["id"], 0)
+    d.mkdir(parents=True, exist_ok=True)
+    part = d / f"{idx:05d}.part"
+    tmp = d / f"{idx:05d}.tmp"
+    # Write then rename: a chunk interrupted mid-write never looks complete.
+    def _write():
+        tmp.write_bytes(data)
+        os.replace(tmp, part)
+
+    await asyncio.to_thread(_write)
+    return {"idx": idx, "size": len(data)}
+
+
+@router.post("/import/complete")
+async def import_complete(req: ImportCompleteRequest, user=Depends(get_current_user)):
+    user_id = user["id"]
+    d = _import_dir(user_id, req.session_id)
+    file_ext = Path(req.filename).suffix.lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+        )
+    if not 0 < req.chunk_count <= IMPORT_MAX_CHUNKS:
+        raise HTTPException(status_code=400, detail="Invalid chunk_count")
+    parts = [d / f"{i:05d}.part" for i in range(req.chunk_count)]
+    missing = [i for i, p in enumerate(parts) if not p.is_file()]
+    if missing:
+        raise HTTPException(status_code=409, detail=f"Missing chunks: {missing[:10]}")
+    total = sum(p.stat().st_size for p in parts)
+    if total != req.size:
+        raise HTTPException(status_code=409, detail=f"Size mismatch: got {total}, expected {req.size}")
+
+    await _enforce_quota(user_id, total)
+
+    assembled = d / f"assembled{file_ext}"
+
+    def _concat():
+        with open(assembled, "wb") as out:
+            for p in parts:
+                with open(p, "rb") as src:
+                    shutil.copyfileobj(src, out, 1024 * 1024)
+
+    await asyncio.to_thread(_concat)
+
+    session_id = req.session_id
+    storage_key = _key("audio", user_id, f"{session_id}{file_ext}")
+    content_type = MIME_MAP.get(file_ext, "audio/mpeg")
+    backend = get_storage_backend()
+    try:
+        await backend.upload_path(storage_key, str(assembled), content_type)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Storage upload failed via {backend.name}: {e}")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+    audio_url = _audio_url_for(session_id, storage_key)
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{BASE_URL}/sessions",
+            headers=HEADERS,
+            json={
+                "id": session_id,
+                "user_id": user_id,
+                "title": Path(req.filename).stem,
+                "duration_seconds": 0,
+                "input_mode": "import",
+                "status": "uploaded",
+                "audio_url": audio_url,
+                "storage_key": storage_key,
+                "original_filename": req.filename,
+                "file_size_bytes": total,
+            },
+        )
+        if resp.status_code not in (200, 201):
+            raise HTTPException(status_code=500, detail=f"Session create failed: {resp.text[:200]}")
+
+    return {"session_id": session_id, "audio_url": audio_url}
 
 
 async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: str, user_id: str):

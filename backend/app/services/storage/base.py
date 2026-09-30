@@ -31,6 +31,22 @@ class StorageBackend(ABC):
     ) -> None:
         """Store bytes at `key`. Overwrite if exists."""
 
+    async def upload_path(
+        self,
+        key: str,
+        path: str,
+        content_type: str = "application/octet-stream",
+    ) -> None:
+        """Store the file at local `path` under `key`, then delete `path`.
+
+        Default reads it into memory; drivers that can do better (local FS:
+        a rename) override it so multi-GB imports never sit in RAM."""
+        import asyncio
+        import os
+        data = await asyncio.to_thread(lambda: open(path, "rb").read())
+        await self.upload(key, data, content_type)
+        os.remove(path)
+
     @abstractmethod
     async def download(self, key: str) -> bytes:
         """Read full file. Raise FileNotFoundError if missing."""
