@@ -49,7 +49,28 @@ export function AuthProvider({ children }) {
         localStorage.removeItem(TOKEN_KEY);
       }
     }
-    setLoading(false);
+
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
+    // Supabase session (magic link, password). supabase-js parses the magic
+    // link hash, persists the refresh token and auto-refreshes the access
+    // token; we mirror every new access token into TOKEN_KEY so the API calls
+    // keep working past the 1h expiry. INITIAL_SESSION fires once the URL
+    // hash has been processed, so we only stop loading then.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.access_token) {
+        localStorage.setItem(TOKEN_KEY, session.access_token);
+        setUser({ id: session.user?.id, email: session.user?.email || "" });
+      } else if (event === "SIGNED_OUT") {
+        localStorage.removeItem(TOKEN_KEY);
+        setUser(null);
+      }
+      if (event === "INITIAL_SESSION") setLoading(false);
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   // Legacy OIDC path (PocketID). Kept for my GREEN-LAB prod.
