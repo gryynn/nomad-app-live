@@ -421,6 +421,17 @@ label {
   transition: transform 0.2s;
 }
 .session-header .chevron.open { transform: rotate(90deg); }
+.session-copy {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border, transparent);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.session-copy:active { transform: scale(0.92); }
 
 /* Inline title edit */
 .title-edit-input {

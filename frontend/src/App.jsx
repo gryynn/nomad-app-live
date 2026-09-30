@@ -48,7 +48,7 @@ function prettifyTitle(s) {
 }
 
 function inputModeEmoji(mode) {
-  const map = { rec: "🎙️", live: "📡", import: "📁", paste: "📋" };
+  const map = { rec: "🎙️", live: "📡", meet: "🖥️", import: "📁", paste: "📋" };
   return map[mode] || "📄";
 }
 
@@ -3099,6 +3099,21 @@ function AppContent({ user, signOut }) {
                       })()}
                     </div>
                   </div>
+                  {s.transcript && (
+                    <button
+                      className="session-copy"
+                      title="Copier la transcription"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await navigator.clipboard.writeText(s.transcript);
+                          setSuccess("Transcription copiée");
+                        } catch {
+                          setError("Copie refusée par le navigateur");
+                        }
+                      }}
+                    >📋</button>
+                  )}
                   <span className={`chevron ${expandedId === s.id ? "open" : ""}`}>&#9656;</span>
                 </div>
 
