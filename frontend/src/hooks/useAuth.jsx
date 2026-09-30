@@ -122,7 +122,9 @@ export function AuthProvider({ children }) {
     if (!supabase) throw new Error("Supabase non configuré côté frontend (VITE_SUPABASE_*).");
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.origin },
+      // Trailing slash matters: the Supabase allowlist entry "https://host/**"
+      // does not match the bare origin, which silently falls back to Site URL.
+      options: { emailRedirectTo: `${window.location.origin}/` },
     });
     if (error) throw error;
   }, []);
