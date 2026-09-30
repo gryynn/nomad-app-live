@@ -52,6 +52,36 @@ function inputModeEmoji(mode) {
   return map[mode] || "📄";
 }
 
+function formatSegmentTime(sec) {
+  const m = Math.floor(sec / 60).toString().padStart(2, "0");
+  const s = Math.floor(sec % 60).toString().padStart(2, "0");
+  return `[${m}:${s}]`;
+}
+
+// Text for the "Copier" button: exactly what the active transcript view
+// shows. Falls back to the plain text when the view has no data to show.
+function transcriptForCopy(session, viewMode, editedText) {
+  const plain = (editedText || session.transcript) ?? "";
+  const segments = session.transcript_segments || [];
+  if (viewMode === "timestamps" && segments.length > 0) {
+    return segments.map((seg) => `${formatSegmentTime(seg.start)} ${seg.text.trim()}`).join("\n");
+  }
+  if (viewMode === "speakers" && segments.some((seg) => seg.speaker != null)) {
+    const lines = [];
+    let lastSpeaker;
+    for (const seg of segments) {
+      if (seg.speaker !== lastSpeaker) {
+        if (lines.length) lines.push("");
+        lines.push(`Locuteur ${(seg.speaker ?? 0) + 1}`);
+        lastSpeaker = seg.speaker;
+      }
+      lines.push(`${formatSegmentTime(seg.start)} ${seg.text.trim()}`);
+    }
+    return lines.join("\n");
+  }
+  return plain;
+}
+
 function getTimeFilterDate(preset) {
   const now = new Date();
   if (preset === "1h") return new Date(now - 3600_000).toISOString();
@@ -3099,21 +3129,6 @@ function AppContent({ user, signOut }) {
                       })()}
                     </div>
                   </div>
-                  {s.transcript && (
-                    <button
-                      className="session-copy"
-                      title="Copier la transcription"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        try {
-                          await navigator.clipboard.writeText(s.transcript);
-                          setSuccess("Transcription copiée");
-                        } catch {
-                          setError("Copie refusée par le navigateur");
-                        }
-                      }}
-                    >📋</button>
-                  )}
                   <span className={`chevron ${expandedId === s.id ? "open" : ""}`}>&#9656;</span>
                 </div>
 
@@ -3384,7 +3399,7 @@ function AppContent({ user, signOut }) {
                       {expandedSession.transcript && (
                         <button
                           className="btn btn-sm btn-ghost"
-                          onClick={() => { navigator.clipboard.writeText((editingTranscript || expandedSession.transcript) ?? ""); setSuccess("Copié !"); }}
+                          onClick={() => { navigator.clipboard.writeText(transcriptForCopy(expandedSession, transcriptViewMode, editingTranscript)); setSuccess("Copié !"); }}
                         >
                           Copier
                         </button>
