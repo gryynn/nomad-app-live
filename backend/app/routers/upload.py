@@ -467,25 +467,40 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
                     f.write(chunk_data)
                 chunk_files.append(chunk_file)
 
-            # 2. Remux via ffmpeg
-            concat_list = os.path.join(tmpdir, "concat.txt")
-            with open(concat_list, "w") as f:
+            # 2. Byte-concatenate, then remux.
+            # MediaRecorder timeslices are slices of ONE continuous stream:
+            # only chunk 0 carries the WebM/MP4 header. The ffmpeg concat
+            # demuxer opens each file as a standalone container, fails on
+            # chunk 1 and silently kept only chunk 0 (~10 s), so every long
+            # REC/LIVE/MEET recording was saved as its first 10 seconds.
+            raw_file = os.path.join(tmpdir, f"raw{ext}")
+            with open(raw_file, "wb") as out:
                 for cf in chunk_files:
-                    safe_path = cf.replace("\\", "/")
-                    f.write(f"file '{safe_path}'\n")
+                    with open(cf, "rb") as src:
+                        shutil.copyfileobj(src, out, 1024 * 1024)
+            raw_size = os.path.getsize(raw_file)
 
+            # Remux only to rebuild duration/cues (MediaRecorder WebM has none).
+            # If the remux fails or drops data, keep the raw stream: it plays.
             output_file = os.path.join(tmpdir, f"assembled{ext}")
             result = subprocess.run(
-                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                 "-i", concat_list, "-c", "copy", output_file],
-                capture_output=True, text=True, timeout=300,
+                ["ffmpeg", "-y", "-loglevel", "error", "-i", raw_file,
+                 "-c", "copy", output_file],
+                capture_output=True, text=True, timeout=600,
             )
-            if result.returncode != 0:
-                print(f"[ASSEMBLE] ffmpeg stderr: {result.stderr[-500:]}")
-                raise Exception(f"ffmpeg failed (code {result.returncode})")
+            if (result.returncode != 0 or not os.path.exists(output_file)
+                    or os.path.getsize(output_file) < raw_size * 0.9):
+                print(f"[ASSEMBLE] remux skipped for {session_id} (code {result.returncode}): {result.stderr[-300:]}")
+                output_file = raw_file
 
             with open(output_file, "rb") as f:
                 assembled_data = f.read()
+
+            # Guard: never delete the chunks if the result lost audio.
+            if len(assembled_data) < raw_size * 0.9:
+                raise Exception(
+                    f"assembled {len(assembled_data)} B < chunks {raw_size} B, chunks kept"
+                )
 
             print(f"[ASSEMBLE] {chunk_count} chunks → {len(assembled_data) / 1024 / 1024:.1f} MB")
 

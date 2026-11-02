@@ -6,6 +6,19 @@ ISO 8601.
 
 ## [Unreleased]
 
+## [0.23.3] — 2026-11-02
+
+### Fixed
+- **Long REC / LIVE / MEET recordings were saved as their first ~10 s.**
+  The server assembled the live chunks with the ffmpeg concat demuxer,
+  which treats each chunk as a standalone file. Only chunk 0 carries the
+  WebM/MP4 header, so assembly kept chunk 0 and dropped the rest, then
+  deleted the chunks. Chunks are now byte-concatenated (they are one
+  continuous MediaRecorder stream) and remuxed only to rebuild duration.
+- Assembly now refuses to delete chunks when the assembled file is
+  smaller than the chunks it came from: the session goes to `error`
+  and the audio stays recoverable on the server.
+
 ### Operations
 - `auto-deploy.sh` now retries network operations up to 3× with 15 s
   backoff. Cron occasionally raced Tailscale / conntrack and missed
