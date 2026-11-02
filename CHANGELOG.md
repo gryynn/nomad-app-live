@@ -6,6 +6,16 @@ ISO 8601.
 
 ## [Unreleased]
 
+## [0.23.5] — 2026-11-02
+
+### Fixed
+- Chunk assembly now detects the chunk shape. PWA timeslices (one stream,
+  header only in chunk 0) are byte-concatenated; Android APK chunks
+  (rotating recorder, one standalone file each) go through the ffmpeg
+  concat demuxer again, which 0.23.3 had wrongly replaced for them. The
+  file path is checked by duration (>= 90 % of the summed chunks) and keeps
+  the chunks on failure.
+
 ## [0.23.4] — 2026-11-02
 
 ### Fixed

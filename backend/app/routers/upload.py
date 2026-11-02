@@ -443,6 +443,27 @@ async def import_complete(req: ImportCompleteRequest, user=Depends(get_current_u
     return {"session_id": session_id, "audio_url": audio_url}
 
 
+def _has_container_header(path: str) -> bool:
+    """True if the file starts with a WebM/Matroska, Ogg or MP4 header."""
+    with open(path, "rb") as f:
+        head = f.read(12)
+    return (head[:4] == b"\x1a\x45\xdf\xa3" or head[:4] == b"OggS"
+            or head[4:8] == b"ftyp")
+
+
+def _probe_duration(path: str) -> float:
+    """Duration in seconds via ffprobe, 0.0 if unknown."""
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", path],
+        capture_output=True, text=True, timeout=60,
+    )
+    try:
+        return float(r.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
 async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: str, user_id: str):
     """Background task: download chunks via backend, ffmpeg remux, upload assembled
     via backend, cleanup chunks via backend. 100% backend-mediated — works on
@@ -467,29 +488,49 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
                     f.write(chunk_data)
                 chunk_files.append(chunk_file)
 
-            # 2. Byte-concatenate, then remux.
-            # MediaRecorder timeslices are slices of ONE continuous stream:
-            # only chunk 0 carries the WebM/MP4 header. The ffmpeg concat
-            # demuxer opens each file as a standalone container, fails on
-            # chunk 1 and silently kept only chunk 0 (~10 s), so every long
-            # REC/LIVE/MEET recording was saved as its first 10 seconds.
+            # 2. Join the chunks. Two producers, two shapes:
+            # - PWA (MediaRecorder timeslices): ONE continuous stream cut in
+            #   slices, only chunk 0 has a container header. Must be
+            #   byte-concatenated; the ffmpeg concat demuxer kept only chunk 0
+            #   (~10 s) until v0.23.2.
+            # - Android APK (rotating recorder): every chunk is a standalone
+            #   file with its own header. Byte concat would play only the
+            #   first one; those need the ffmpeg concat demuxer.
             raw_file = os.path.join(tmpdir, f"raw{ext}")
             with open(raw_file, "wb") as out:
                 for cf in chunk_files:
                     with open(cf, "rb") as src:
                         shutil.copyfileobj(src, out, 1024 * 1024)
             raw_size = os.path.getsize(raw_file)
-
-            # Remux only to rebuild duration/cues (MediaRecorder WebM has none).
-            # If the remux fails or drops data, keep the raw stream: it plays.
             output_file = os.path.join(tmpdir, f"assembled{ext}")
-            result = subprocess.run(
-                ["ffmpeg", "-y", "-loglevel", "error", "-i", raw_file,
-                 "-c", "copy", output_file],
-                capture_output=True, text=True, timeout=600,
+
+            standalone = len(chunk_files) > 1 and all(
+                _has_container_header(cf) for cf in chunk_files[1:]
             )
-            if (result.returncode != 0 or not os.path.exists(output_file)
-                    or os.path.getsize(output_file) < raw_size * 0.9):
+            if standalone:
+                concat_list = os.path.join(tmpdir, "concat.txt")
+                with open(concat_list, "w") as f:
+                    for cf in chunk_files:
+                        f.write(f"file '{cf}'\n")
+                cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "concat",
+                       "-safe", "0", "-i", concat_list, "-c", "copy", output_file]
+                expected = sum(_probe_duration(cf) for cf in chunk_files)
+            else:
+                # Remux only to rebuild duration/cues (MediaRecorder WebM has none).
+                cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", raw_file,
+                       "-c", "copy", output_file]
+                expected = None
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            ok = result.returncode == 0 and os.path.exists(output_file)
+            if ok and standalone:
+                got = _probe_duration(output_file)
+                ok = expected <= 0 or got >= expected * 0.9
+                if not ok:
+                    raise Exception(f"concat gave {got:.0f}s of {expected:.0f}s, chunks kept")
+            if not ok:
+                if standalone:
+                    raise Exception(f"ffmpeg concat failed (code {result.returncode}): {result.stderr[-200:]}, chunks kept")
+                # Stream case: the raw byte stream is itself a playable file.
                 print(f"[ASSEMBLE] remux skipped for {session_id} (code {result.returncode}): {result.stderr[-300:]}")
                 output_file = raw_file
 
@@ -501,6 +542,7 @@ async def _do_assembly_background(session_id: str, chunk_count: int, mime_type: 
                 raise Exception(
                     f"assembled {len(assembled_data)} B < chunks {raw_size} B, chunks kept"
                 )
+            print(f"[ASSEMBLE] mode={'files' if standalone else 'stream'} {session_id}")
 
             print(f"[ASSEMBLE] {chunk_count} chunks → {len(assembled_data) / 1024 / 1024:.1f} MB")
 
