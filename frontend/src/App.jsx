@@ -723,6 +723,22 @@ function AppContent({ user, signOut }) {
   const syncUploadFn = useCallback(async (item) => {
     const blob = item.blob;
     if (!blob) throw new Error("Pas de blob audio");
+    // Local safety copy of a recording sent through server assembly:
+    // drop it once the server has the full file, re-upload it otherwise.
+    if (item.awaitingSessionId) {
+      let s = null;
+      try { s = await api.getSession(item.awaitingSessionId); } catch (_) { /* gone or offline */ }
+      if (s === null && !navigator.onLine) { const e = new Error("hors-ligne"); e.pending = true; throw e; }
+      const ageMs = Date.now() - new Date(item.savedAt).getTime();
+      if (s && s.status === "assembling" && ageMs < 30 * 60_000) {
+        const e = new Error("assemblage en cours"); e.pending = true; throw e;
+      }
+      const expected = item.blobSize || blob.size;
+      if (s && s.status !== "error" && s.status !== "assembling" && (s.file_size_bytes || 0) >= expected * 0.9) {
+        return "verified";
+      }
+      console.warn(`[SYNC] assembly of ${item.awaitingSessionId} incomplete (status=${s?.status}, ${s?.file_size_bytes} B vs ${expected} B), re-uploading local copy`);
+    }
     const ext = blob.type?.includes("mp4") ? "mp4" : "webm";
     const file = new File([blob], item.filename || `sync_${Date.now()}.${ext}`, { type: blob.type || "audio/webm" });
     const result = await api.uploadAudio(file);
@@ -1517,7 +1533,17 @@ function AppContent({ user, signOut }) {
       }
 
       // Upload succeeded → clean up
-      await offline.removePendingItem({ id: offlineId, _store: "recording" });
+      if (assemblyUsed) {
+        // Server assembly runs in the background and can still fail. Keep the
+        // local copy, tagged with its session, until the server shows a file
+        // of plausible size (checked by syncUploadFn). Before v0.23.3 the copy
+        // was deleted here and a bad assembly lost the whole recording.
+        await offline.saveRecordingOffline({ ...offlineItem, awaitingSessionId: sessionId, blobSize: pendingBlob.size });
+        [20_000, 60_000, 180_000, 600_000].forEach((ms) =>
+          setTimeout(() => offline.syncPending(), ms));
+      } else {
+        await offline.removePendingItem({ id: offlineId, _store: "recording" });
+      }
       if (recId) await offline.clearRecordingChunks(recId);
       clearDraft();
 

@@ -125,7 +125,7 @@ export function useOfflineSync(userId) {
 
       for (const item of allPending) {
         try {
-          await fn(item);
+          const outcome = await fn(item);
 
           // Determine which store to remove from
           if (sessions.find((s) => s.id === item.id)) {
@@ -134,9 +134,12 @@ export function useOfflineSync(userId) {
             await removePendingRecording(item.id);
           }
 
-          synced++;
+          // "verified" = local safety copy dropped, nothing was uploaded
+          if (outcome !== "verified") synced++;
           setSyncProgress({ total: allPending.length, synced });
         } catch (err) {
+          // Not a failure: server assembly still running, check again later
+          if (err.pending) continue;
           // Continue to next item instead of breaking
           failed++;
           errors.push(`${item.filename || item.id}: ${err.message}`);

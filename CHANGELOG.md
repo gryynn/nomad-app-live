@@ -6,6 +6,16 @@ ISO 8601.
 
 ## [Unreleased]
 
+## [0.23.4] — 2026-11-02
+
+### Fixed
+- The PWA no longer deletes its local copy of a recording as soon as the
+  server assembly is queued. The copy stays in IndexedDB, tagged with its
+  session, and is dropped only once the server shows a file of plausible
+  size. If the assembly fails, or the file is too small, the local copy is
+  uploaded again as a normal session. Checks run 20 s, 1, 3 and 10 min
+  after saving, and on every app start.
+
 ## [0.23.3] — 2026-11-02
 
 ### Fixed
