@@ -6,6 +6,11 @@ ISO 8601.
 
 ## [Unreleased]
 
+### Fixed
+- nginx re-resolves `nomad-api` through Docker DNS (`resolver 127.0.0.11`).
+  Recreating the API container alone used to leave the frontend pointing at
+  the old IP: every `/api/*` call returned 502 and the session list showed 0.
+
 ## [0.23.5] — 2026-11-02
 
 ### Fixed
